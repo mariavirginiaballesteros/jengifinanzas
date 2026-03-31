@@ -1,10 +1,7 @@
 INSTRUCCIONES IMPORTANTES:
-Por favor, ve a tu panel de Supabase -> "SQL Editor" -> "New Query" y ejecuta exactamente el siguiente texto para agregar las columnas a la base de datos. Sin esto, la pantalla de clientes dará error al guardar.
+Ve a tu panel de Supabase -> "SQL Editor" -> "New Query" y ejecuta exactamente este texto para agregar las nuevas columnas a la tabla clientes.
 
 ALTER TABLE public.clientes
-ADD COLUMN fecha_inicio DATE,
-ADD COLUMN fecha_fin DATE,
-ADD COLUMN link_contrato TEXT,
-ADD COLUMN dia_facturacion INTEGER,
-ADD COLUMN contacto_nombre TEXT,
-ADD COLUMN contacto_email TEXT;
+ADD COLUMN datos_facturacion TEXT,
+ADD COLUMN seguimiento_pagos TEXT,
+ADD COLUMN estado_cobro TEXT DEFAULT 'por_enviar';

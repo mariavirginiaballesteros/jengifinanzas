@@ -2,7 +2,7 @@ import React, { useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { supabase } from '@/integrations/supabase/client';
 import { TipAlert } from '@/components/TipAlert';
-import { Plus, Edit2, Trash2, Building, AlertTriangle } from 'lucide-react';
+import { Plus, Edit2, Trash2, Building, AlertTriangle, MessageCircle, FileText, User, Calendar } from 'lucide-react';
 import { formatARS, formatUSD } from '@/lib/utils';
 import { showSuccess, showError } from '@/utils/toast';
 
@@ -23,7 +23,10 @@ export default function Clientes() {
     link_contrato: '',
     dia_facturacion: '',
     contacto_nombre: '',
-    contacto_email: ''
+    contacto_email: '',
+    datos_facturacion: '',
+    seguimiento_pagos: '',
+    estado_cobro: 'por_enviar'
   };
   const [formData, setFormData] = useState<any>(defaultForm);
 
@@ -76,6 +79,18 @@ export default function Clientes() {
     onError: (err: any) => showError(err.message)
   });
 
+  const updateEstadoCobroMutation = useMutation({
+    mutationFn: async ({ id, estado_cobro }: { id: string, estado_cobro: string }) => {
+      const { error } = await supabase.from('clientes').update({ estado_cobro }).eq('id', id);
+      if (error) throw error;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['clientes'] });
+      showSuccess('Estado de facturación actualizado');
+    },
+    onError: (err: any) => showError(err.message)
+  });
+
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     saveMutation.mutate(formData);
@@ -94,7 +109,10 @@ export default function Clientes() {
       link_contrato: cliente.link_contrato || '',
       dia_facturacion: cliente.dia_facturacion || '',
       contacto_nombre: cliente.contacto_nombre || '',
-      contacto_email: cliente.contacto_email || ''
+      contacto_email: cliente.contacto_email || '',
+      datos_facturacion: cliente.datos_facturacion || '',
+      seguimiento_pagos: cliente.seguimiento_pagos || '',
+      estado_cobro: cliente.estado_cobro || 'por_enviar'
     });
     setEditingId(cliente.id);
     setIsFormOpen(true);
@@ -115,12 +133,26 @@ export default function Clientes() {
     return diffDays > 0 && diffDays <= 30;
   };
 
+  const handleSolicitarFactura = (cliente: any) => {
+    const monto = cliente.monto_ars > 0 ? formatARS(cliente.monto_ars) : formatUSD(cliente.monto_usd);
+    const texto = `Hola! Solicito la emisión de factura para el cliente *${cliente.nombre}*.
+    
+*Monto:* ${monto}
+*Concepto/Cuota:* ${cliente.seguimiento_pagos || 'Abono Mensual'}
+*Día de facturación ideal:* ${cliente.dia_facturacion || 'No especificado'}
+
+*Datos de facturación:* 
+${cliente.datos_facturacion || 'No especificados en el sistema'}
+`;
+    window.open(`https://wa.me/?text=${encodeURIComponent(texto)}`, '_blank');
+  };
+
   return (
     <div className="animate-in fade-in duration-500 pb-12">
       <header className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-8">
         <div>
           <h1 className="text-3xl font-display font-bold text-jengibre-dark">Gestión de Clientes</h1>
-          <p className="text-gray-600 mt-1">Administrá contratos, contactos y fechas de facturación.</p>
+          <p className="text-gray-600 mt-1">Administrá contratos, contactos y estado de facturación mensual.</p>
         </div>
         <button 
           onClick={() => setIsFormOpen(true)}
@@ -130,8 +162,10 @@ export default function Clientes() {
         </button>
       </header>
 
-      <TipAlert id="clientes_tabla" title="💡 Vista de Tabla">
-        Los clientes ahora se muestran en formato tabla para facilitar la lectura. Si un contrato está por vencer, verás un ícono de alerta en la columna de Vencimiento.
+      <TipAlert id="clientes_facturacion" title="💡 Ciclo de Facturación Mensual">
+        Usa la columna <strong>Estado Mensual</strong> para marcar si la factura ya se envió o ya se pagó. 
+        Al empezar un nuevo mes, deberás pasar manualmente los estados nuevamente a "Por Enviar". 
+        Usa el botón de WhatsApp para pedirle rápidamente la factura a la contadora.
       </TipAlert>
 
       {isFormOpen && (
@@ -141,17 +175,31 @@ export default function Clientes() {
               {editingId ? 'Editar Cliente' : 'Nuevo Cliente'}
             </h2>
             <form onSubmit={handleSubmit} className="space-y-6">
+              
               {/* DATOS COMERCIALES */}
               <div className="bg-gray-50 p-4 rounded-xl border border-gray-100 space-y-4">
                 <h3 className="font-bold text-gray-800 text-sm uppercase tracking-wider">Datos Comerciales</h3>
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">Nombre / Empresa</label>
-                  <input 
-                    required autoFocus
-                    className="w-full border border-gray-300 rounded-lg p-2.5 focus:ring-2 focus:ring-jengibre-primary outline-none" 
-                    value={formData.nombre} onChange={e => setFormData({...formData, nombre: e.target.value})}
-                  />
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">Nombre / Empresa</label>
+                    <input 
+                      required autoFocus
+                      className="w-full border border-gray-300 rounded-lg p-2.5 focus:ring-2 focus:ring-jengibre-primary outline-none" 
+                      value={formData.nombre} onChange={e => setFormData({...formData, nombre: e.target.value})}
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">Estado de la cuenta</label>
+                    <select 
+                      className="w-full border border-gray-300 rounded-lg p-2.5 focus:ring-2 focus:ring-jengibre-primary outline-none bg-white"
+                      value={formData.estado} onChange={e => setFormData({...formData, estado: e.target.value})}
+                    >
+                      <option value="activo">Activo</option>
+                      <option value="inactivo">Inactivo</option>
+                    </select>
+                  </div>
                 </div>
+                
                 <div className="grid grid-cols-2 gap-4">
                   <div>
                     <label className="block text-sm font-medium text-gray-700 mb-1">Abono ARS</label>
@@ -170,9 +218,41 @@ export default function Clientes() {
                 </div>
               </div>
 
-              {/* CONTRATO Y FACTURACIÓN */}
+              {/* FACTURACIÓN Y SEGUIMIENTO */}
+              <div className="bg-jengibre-amber/10 p-4 rounded-xl border border-jengibre-amber/20 space-y-4">
+                <h3 className="font-bold text-jengibre-dark text-sm uppercase tracking-wider">Facturación y Cobranza</h3>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">Seguimiento de Pagos</label>
+                    <input 
+                      className="w-full border border-gray-300 rounded-lg p-2.5 focus:ring-2 focus:ring-jengibre-primary outline-none bg-white" 
+                      value={formData.seguimiento_pagos} onChange={e => setFormData({...formData, seguimiento_pagos: e.target.value})}
+                      placeholder="Ej: Mensual, 1/3, 2/3..."
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">Día del mes para facturar</label>
+                    <input 
+                      type="number" min="1" max="31"
+                      className="w-full border border-gray-300 rounded-lg p-2.5 focus:ring-2 focus:ring-jengibre-primary outline-none bg-white" 
+                      value={formData.dia_facturacion} onChange={e => setFormData({...formData, dia_facturacion: e.target.value})}
+                      placeholder="Ej: 5"
+                    />
+                  </div>
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">Datos de Facturación (CUIT, Razón Social)</label>
+                  <textarea 
+                    className="w-full border border-gray-300 rounded-lg p-2.5 focus:ring-2 focus:ring-jengibre-primary outline-none bg-white min-h-[80px]" 
+                    value={formData.datos_facturacion} onChange={e => setFormData({...formData, datos_facturacion: e.target.value})}
+                    placeholder="Razón Social:&#10;CUIT:&#10;Condición IVA:..."
+                  />
+                </div>
+              </div>
+
+              {/* CONTRATO */}
               <div className="bg-gray-50 p-4 rounded-xl border border-gray-100 space-y-4">
-                <h3 className="font-bold text-gray-800 text-sm uppercase tracking-wider">Contrato y Facturación</h3>
+                <h3 className="font-bold text-gray-800 text-sm uppercase tracking-wider">Contrato y Fechas</h3>
                 <div className="grid grid-cols-2 gap-4">
                   <div>
                     <label className="block text-sm font-medium text-gray-700 mb-1">Fecha de Inicio</label>
@@ -189,32 +269,13 @@ export default function Clientes() {
                     />
                   </div>
                 </div>
-                <div className="grid grid-cols-2 gap-4">
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1">Día del mes para facturar</label>
-                    <input 
-                      type="number" min="1" max="31"
-                      className="w-full border border-gray-300 rounded-lg p-2.5 focus:ring-2 focus:ring-jengibre-primary outline-none bg-white" 
-                      value={formData.dia_facturacion} onChange={e => setFormData({...formData, dia_facturacion: e.target.value})}
-                    />
-                  </div>
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1">Estado</label>
-                    <select 
-                      className="w-full border border-gray-300 rounded-lg p-2.5 focus:ring-2 focus:ring-jengibre-primary outline-none bg-white"
-                      value={formData.estado} onChange={e => setFormData({...formData, estado: e.target.value})}
-                    >
-                      <option value="activo">Activo</option>
-                      <option value="inactivo">Inactivo</option>
-                    </select>
-                  </div>
-                </div>
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-1">Link al Documento / Contrato</label>
                   <input 
                     type="url"
                     className="w-full border border-gray-300 rounded-lg p-2.5 focus:ring-2 focus:ring-jengibre-primary outline-none bg-white" 
                     value={formData.link_contrato} onChange={e => setFormData({...formData, link_contrato: e.target.value})}
+                    placeholder="https://drive.google.com/..."
                   />
                 </div>
               </div>
@@ -268,12 +329,11 @@ export default function Clientes() {
               <thead>
                 <tr className="bg-jengibre-cream/50 text-jengibre-dark text-sm border-b border-jengibre-border">
                   <th className="px-4 py-3 font-bold">Empresa / Cliente</th>
-                  <th className="px-4 py-3 font-bold text-right">Abono ARS</th>
-                  <th className="px-4 py-3 font-bold text-right">Abono USD</th>
+                  <th className="px-4 py-3 font-bold text-right">Abonos</th>
                   <th className="px-4 py-3 font-bold text-center">Día Fact.</th>
-                  <th className="px-4 py-3 font-bold">Vencimiento</th>
-                  <th className="px-4 py-3 font-bold">Contacto</th>
-                  <th className="px-4 py-3 font-bold text-center">Estado</th>
+                  <th className="px-4 py-3 font-bold">Datos Fact. y Cuota</th>
+                  <th className="px-4 py-3 font-bold">Vencimiento Contrato</th>
+                  <th className="px-4 py-3 font-bold text-center">Estado Mensual</th>
                   <th className="px-4 py-3 font-bold text-center">Acciones</th>
                 </tr>
               </thead>
@@ -283,46 +343,79 @@ export default function Clientes() {
                   
                   return (
                     <tr key={cliente.id} className="border-b border-gray-100 hover:bg-gray-50 transition-colors group">
-                      <td className="px-4 py-3">
+                      <td className="px-4 py-4">
                         <div className="font-bold text-gray-900">{cliente.nombre}</div>
-                        {cliente.link_contrato && (
-                          <a href={cliente.link_contrato} target="_blank" rel="noopener noreferrer" className="text-[10px] text-blue-600 hover:underline">Ver Contrato</a>
-                        )}
-                      </td>
-                      <td className="px-4 py-3 text-right font-mono font-medium text-gray-700">
-                        {cliente.monto_ars > 0 ? formatARS(cliente.monto_ars) : '-'}
-                      </td>
-                      <td className="px-4 py-3 text-right font-mono font-medium text-gray-700">
-                        {cliente.monto_usd > 0 ? formatUSD(cliente.monto_usd) : '-'}
-                      </td>
-                      <td className="px-4 py-3 text-center">
-                        {cliente.dia_facturacion ? <span className="bg-gray-100 text-gray-700 px-2 py-1 rounded font-bold text-xs">{cliente.dia_facturacion}</span> : '-'}
-                      </td>
-                      <td className="px-4 py-3 text-sm">
-                        {cliente.fecha_fin ? (
-                          <div className={`flex items-center gap-1.5 ${venciendo ? 'text-jengibre-amber font-bold' : 'text-gray-600'}`}>
-                            {new Date(cliente.fecha_fin).toLocaleDateString('es-AR')}
-                            {venciendo && <AlertTriangle size={14} />}
-                          </div>
-                        ) : <span className="text-gray-400">-</span>}
-                      </td>
-                      <td className="px-4 py-3 text-sm text-gray-600">
-                        {cliente.contacto_nombre || cliente.contacto_email ? (
-                          <div>
-                            <div className="font-medium text-gray-900">{cliente.contacto_nombre}</div>
-                            <div className="text-xs">{cliente.contacto_email}</div>
-                          </div>
-                        ) : '-'}
-                      </td>
-                      <td className="px-4 py-3 text-center">
-                        <span className={`text-[10px] px-2 py-1 rounded-full font-bold uppercase ${cliente.estado === 'activo' ? 'bg-green-100 text-green-700' : 'bg-gray-100 text-gray-600'}`}>
+                        <span className={`text-[10px] px-2 py-0.5 rounded-full font-bold uppercase mt-1 inline-block ${cliente.estado === 'activo' ? 'bg-green-100 text-green-700' : 'bg-gray-100 text-gray-600'}`}>
                           {cliente.estado === 'activo' ? 'Activo' : 'Inactivo'}
                         </span>
                       </td>
-                      <td className="px-4 py-3">
-                        <div className="flex items-center justify-center gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
-                          <button onClick={() => openEdit(cliente)} className="p-1.5 text-gray-400 hover:text-blue-600 hover:bg-blue-50 rounded-lg"><Edit2 size={16} /></button>
-                          <button onClick={() => { if(confirm('¿Eliminar este cliente?')) deleteMutation.mutate(cliente.id); }} className="p-1.5 text-gray-400 hover:text-red-600 hover:bg-red-50 rounded-lg"><Trash2 size={16} /></button>
+                      <td className="px-4 py-4 text-right">
+                        {cliente.monto_ars > 0 && <div className="font-mono font-bold text-gray-900">{formatARS(cliente.monto_ars)}</div>}
+                        {cliente.monto_usd > 0 && <div className="font-mono font-medium text-gray-600">{formatUSD(cliente.monto_usd)}</div>}
+                      </td>
+                      <td className="px-4 py-4 text-center">
+                        {cliente.dia_facturacion ? <span className="bg-gray-100 text-gray-700 px-2 py-1 rounded font-bold text-xs">{cliente.dia_facturacion}</span> : <span className="text-gray-400">-</span>}
+                      </td>
+                      <td className="px-4 py-4">
+                        <div className="flex flex-col gap-1 max-w-[200px]">
+                          {cliente.seguimiento_pagos ? (
+                            <span className="text-xs bg-blue-50 text-blue-700 font-bold px-2 py-0.5 rounded-md inline-block w-fit">
+                              Etapa: {cliente.seguimiento_pagos}
+                            </span>
+                          ) : <span className="text-xs text-gray-400">Sin seguimiento</span>}
+                          
+                          {cliente.datos_facturacion ? (
+                            <span className="text-xs text-gray-500 truncate" title={cliente.datos_facturacion}>
+                              {cliente.datos_facturacion}
+                            </span>
+                          ) : <span className="text-xs text-gray-400 italic">Sin datos de facturación</span>}
+                        </div>
+                      </td>
+                      <td className="px-4 py-4 text-sm">
+                        <div className="flex flex-col gap-1">
+                          {cliente.fecha_fin ? (
+                            <span className={`font-medium flex items-center gap-1 ${venciendo ? 'text-jengibre-red' : 'text-gray-700'}`}>
+                              {new Date(cliente.fecha_fin).toLocaleDateString('es-AR')}
+                              {venciendo && <AlertTriangle size={14} />}
+                            </span>
+                          ) : <span className="text-gray-400">-</span>}
+                          
+                          {cliente.link_contrato && (
+                            <a href={cliente.link_contrato} target="_blank" rel="noopener noreferrer" className="text-[10px] text-blue-600 hover:underline flex items-center gap-1">
+                              <FileText size={12}/> Ver Contrato
+                            </a>
+                          )}
+                        </div>
+                      </td>
+                      <td className="px-4 py-4 text-center">
+                        <select 
+                          className={`text-xs font-bold rounded-lg px-2 py-1.5 border outline-none cursor-pointer transition-colors ${
+                            cliente.estado_cobro === 'pagado' ? 'bg-green-50 border-green-200 text-green-700' :
+                            cliente.estado_cobro === 'enviada' ? 'bg-amber-50 border-amber-200 text-amber-700' :
+                            'bg-gray-50 border-gray-200 text-gray-600'
+                          }`}
+                          value={cliente.estado_cobro || 'por_enviar'}
+                          onChange={(e) => updateEstadoCobroMutation.mutate({ id: cliente.id, estado_cobro: e.target.value })}
+                          disabled={updateEstadoCobroMutation.isPending}
+                        >
+                          <option value="por_enviar">⏳ Por Enviar</option>
+                          <option value="enviada">📨 Factura Enviada</option>
+                          <option value="pagado">✅ Pagado</option>
+                        </select>
+                      </td>
+                      <td className="px-4 py-4">
+                        <div className="flex items-center justify-center gap-2">
+                          <button 
+                            onClick={() => handleSolicitarFactura(cliente)} 
+                            className="flex items-center gap-1 px-2 py-1.5 bg-green-50 text-green-700 hover:bg-green-100 rounded-lg text-xs font-bold transition-colors border border-green-200"
+                            title="Solicitar factura por WhatsApp"
+                          >
+                            <MessageCircle size={14} /> Solicitar
+                          </button>
+                          <div className="flex items-center gap-1 border-l border-gray-200 pl-2">
+                            <button onClick={() => openEdit(cliente)} className="p-1.5 text-gray-400 hover:text-blue-600 hover:bg-blue-50 rounded-lg"><Edit2 size={16} /></button>
+                            <button onClick={() => { if(confirm('¿Eliminar este cliente?')) deleteMutation.mutate(cliente.id); }} className="p-1.5 text-gray-400 hover:text-red-600 hover:bg-red-50 rounded-lg"><Trash2 size={16} /></button>
+                          </div>
                         </div>
                       </td>
                     </tr>
