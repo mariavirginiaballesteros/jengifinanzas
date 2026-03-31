@@ -9,6 +9,8 @@ import Login from "./pages/Login";
 import Index from "./pages/Index";
 import Clientes from "./pages/Clientes";
 import Equipo from "./pages/Equipo";
+import Caja from "./pages/Caja";
+import Compras from "./pages/Compras";
 import NotFound from "./pages/NotFound";
 
 const queryClient = new QueryClient();
@@ -35,9 +37,9 @@ const App = () => (
               <Route path="/" element={<Index />} />
               <Route path="/clientes" element={<Clientes />} />
               <Route path="/equipo" element={<Equipo />} />
-              <Route path="/caja" element={<Placeholder title="Libro de Caja" />} />
+              <Route path="/caja" element={<Caja />} />
               <Route path="/recuperos" element={<Placeholder title="Recuperos Pendientes" />} />
-              <Route path="/compras" element={<Placeholder title="Compras y Crédito Fiscal" />} />
+              <Route path="/compras" element={<Compras />} />
               <Route path="/proyeccion" element={<Placeholder title="Proyección 12 Meses" />} />
               <Route path="/salud" element={<Placeholder title="Salud Financiera" />} />
               <Route path="/contadora" element={<Placeholder title="Módulo Contadora" />} />
