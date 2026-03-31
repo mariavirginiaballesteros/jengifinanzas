@@ -12,6 +12,7 @@ import Facturacion from "./pages/Facturacion";
 import Equipo from "./pages/Equipo";
 import Caja from "./pages/Caja";
 import Compras from "./pages/Compras";
+import Proyeccion from "./pages/Proyeccion";
 import NotFound from "./pages/NotFound";
 
 const queryClient = new QueryClient();
@@ -42,7 +43,7 @@ const App = () => (
               <Route path="/caja" element={<Caja />} />
               <Route path="/recuperos" element={<Placeholder title="Recuperos Pendientes" />} />
               <Route path="/compras" element={<Compras />} />
-              <Route path="/proyeccion" element={<Placeholder title="Proyección 12 Meses" />} />
+              <Route path="/proyeccion" element={<Proyeccion />} />
               <Route path="/salud" element={<Placeholder title="Salud Financiera" />} />
               <Route path="/contadora" element={<Placeholder title="Módulo Contadora" />} />
               <Route path="/configuracion" element={<Placeholder title="Configuración" />} />
