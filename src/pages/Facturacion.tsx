@@ -1,8 +1,8 @@
-import React, { useState } from 'react';
+import React, { useState, useMemo } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { supabase } from '@/integrations/supabase/client';
 import { TipAlert } from '@/components/TipAlert';
-import { Plus, Edit2, Trash2, MessageCircle, Save } from 'lucide-react';
+import { Plus, Edit2, Trash2, MessageCircle, Save, ChevronDown, ChevronRight, Building } from 'lucide-react';
 import { formatARS } from '@/lib/utils';
 import { showSuccess, showError } from '@/utils/toast';
 
@@ -10,6 +10,7 @@ export default function Facturacion() {
   const queryClient = useQueryClient();
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editData, setEditData] = useState<any>({});
+  const [expandedGroups, setExpandedGroups] = useState<string[]>([]);
   
   // Modal de agregar fila manual
   const [isFormOpen, setIsFormOpen] = useState(false);
@@ -23,7 +24,7 @@ export default function Facturacion() {
     queryFn: async () => {
       const { data, error } = await supabase
         .from('facturacion')
-        .select(`*, cliente:clientes(nombre, cuit)`)
+        .select(`*, cliente:clientes(id, nombre, cuit)`)
         .order('mes', { ascending: true });
       if (error) throw error;
       return data;
@@ -49,7 +50,6 @@ export default function Facturacion() {
 
   const saveRowMutation = useMutation({
     mutationFn: async (payload: any) => {
-      // Calculamos el monto final en base a la inflación si estamos editando
       const inflacion = Number(payload.porcentaje_inflacion) || 0;
       const base = Number(payload.monto_base) || 0;
       const final = base * (1 + (inflacion / 100));
@@ -83,6 +83,50 @@ export default function Facturacion() {
       showSuccess('Fila eliminada');
     }
   });
+
+  // Procesamiento de datos para agrupar por Cliente
+  const groupedFacturas = useMemo(() => {
+    if (!facturas) return [];
+    
+    const groups: Record<string, any> = {};
+    
+    facturas.forEach(row => {
+      const clientId = row.cliente?.id || 'manual';
+      const clientName = row.cliente?.nombre || 'Operaciones Manuales';
+      
+      if (!groups[clientId]) {
+        groups[clientId] = {
+          id: clientId,
+          nombre: clientName,
+          cuit: row.cliente?.cuit || '',
+          items: [],
+          totalMonto: 0,
+          totalPagado: 0
+        };
+      }
+      
+      groups[clientId].items.push(row);
+      const montoFinal = Number(row.monto_final || row.monto_base || 0);
+      groups[clientId].totalMonto += montoFinal;
+      
+      if (row.estado === 'pagado') {
+        groups[clientId].totalPagado += montoFinal;
+      }
+    });
+    
+    // Convertir objeto a array y ordenar alfabéticamente
+    return Object.values(groups).sort((a, b) => {
+      if (a.id === 'manual') return 1;
+      if (b.id === 'manual') return -1;
+      return a.nombre.localeCompare(b.nombre);
+    });
+  }, [facturas]);
+
+  const toggleGroup = (id: string) => {
+    setExpandedGroups(prev => 
+      prev.includes(id) ? prev.filter(gId => gId !== id) : [...prev, id]
+    );
+  };
 
   const handleSolicitarFactura = (row: any) => {
     const mesNombre = new Date(row.mes).toLocaleDateString('es-AR', { month: 'long', timeZone: 'UTC' });
@@ -119,7 +163,7 @@ export default function Facturacion() {
       <header className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-8">
         <div>
           <h1 className="text-3xl font-display font-bold text-jengibre-dark">Cronograma de Facturación</h1>
-          <p className="text-gray-600 mt-1">Control mensual de emisión de facturas y cobranzas.</p>
+          <p className="text-gray-600 mt-1">Control mensual de emisión de facturas y cobranzas por cliente.</p>
         </div>
         <button 
           onClick={() => { setManualForm({...manualForm, mes: new Date().toISOString().split('T')[0]}); setIsFormOpen(true); }}
@@ -129,8 +173,8 @@ export default function Facturacion() {
         </button>
       </header>
 
-      <TipAlert id="facturacion_excel" title="💡 Como en Excel">
-        Esta vista replica tu documento de facturación. Usa el botón "Editar" en una fila para ajustarle la inflación (el monto final se recalcula solo). Usa el botón de WhatsApp para enviarle la info formateada a la contadora.
+      <TipAlert id="facturacion_grupos" title="💡 Agrupado por Proyecto">
+        Ahora la facturación se agrupa por cliente. Hace clic sobre cualquier recuadro para expandir y ver todas las cuotas, editar montos o cambiar los estados de pago.
       </TipAlert>
 
       {/* Modal Fila Manual */}
@@ -142,7 +186,7 @@ export default function Facturacion() {
               <div>
                 <label className="text-xs font-bold text-gray-600">Proyecto (Cliente)</label>
                 <select className="w-full border rounded p-2" value={manualForm.cliente_id} onChange={e => setManualForm({...manualForm, cliente_id: e.target.value})}>
-                  <option value="">Seleccionar...</option>
+                  <option value="">Ninguno / Manual...</option>
                   {clientes?.map((c:any) => <option key={c.id} value={c.id}>{c.nombre}</option>)}
                 </select>
               </div>
@@ -168,101 +212,144 @@ export default function Facturacion() {
         </div>
       )}
 
-      {/* TABLA ESTILO EXCEL */}
-      <div className="bg-white border border-jengibre-border rounded-xl shadow-sm overflow-hidden w-full">
+      {/* LISTADO DE GRUPOS (ACORDEONES) */}
+      <div className="space-y-4">
         {isLoading ? (
           <div className="p-12 flex justify-center"><div className="w-8 h-8 border-4 border-jengibre-primary border-t-transparent rounded-full animate-spin"></div></div>
-        ) : facturas?.length === 0 ? (
-          <div className="p-12 text-center text-gray-500">No hay facturación generada. Ve a un cliente para generar su cronograma o agrega una fila manual.</div>
-        ) : (
-          <div className="overflow-x-auto">
-            <table className="w-full text-left border-collapse whitespace-nowrap text-sm">
-              <thead>
-                <tr className="bg-[#f8f5f0] text-gray-900 border-b-2 border-jengibre-border font-bold uppercase text-[11px] tracking-wider">
-                  <th className="px-3 py-3 border-r border-gray-200">Proyecto</th>
-                  <th className="px-3 py-3 border-r border-gray-200">Cuit Empresa</th>
-                  <th className="px-3 py-3 border-r border-gray-200 text-center">Cuota</th>
-                  <th className="px-3 py-3 border-r border-gray-200 text-center">Mes</th>
-                  <th className="px-3 py-3 border-r border-gray-200 text-right">Monto</th>
-                  <th className="px-3 py-3 border-r border-gray-200 text-center">Inflación</th>
-                  <th className="px-3 py-3 border-r border-gray-200 text-right bg-jengibre-cream">Monto Final</th>
-                  <th className="px-3 py-3 border-r border-gray-200">Responsable Afip</th>
-                  <th className="px-3 py-3 border-r border-gray-200">CUIT Resp.</th>
-                  <th className="px-3 py-3 border-r border-gray-200 min-w-[200px]">Descripción</th>
-                  <th className="px-3 py-3 border-r border-gray-200 text-center">Estado</th>
-                  <th className="px-3 py-3 text-center bg-gray-50">Acciones</th>
-                </tr>
-              </thead>
-              <tbody>
-                {facturas?.map((row) => {
-                  const isEditing = editingId === row.id;
-                  const mesNombre = new Date(row.mes).toLocaleDateString('es-AR', { month: 'long', timeZone: 'UTC' });
-                  
-                  return (
-                    <tr key={row.id} className="border-b border-gray-200 hover:bg-gray-50/50">
-                      <td className="px-3 py-2.5 font-bold text-gray-900 border-r border-gray-200 bg-[#fbf9f6]">{row.cliente?.nombre || 'Manual'}</td>
-                      <td className="px-3 py-2.5 font-mono text-gray-600 border-r border-gray-200 bg-[#fbf9f6]">{row.cliente?.cuit || '-'}</td>
-                      <td className="px-3 py-2.5 font-bold text-center border-r border-gray-200">{row.cuota}</td>
-                      <td className="px-3 py-2.5 text-center capitalize border-r border-gray-200">{mesNombre}</td>
-                      
-                      {/* EDICIÓN EN LÍNEA */}
-                      {isEditing ? (
-                        <>
-                          <td className="px-2 py-1 border-r border-gray-200"><input type="number" className="w-24 border border-blue-300 p-1 text-right text-xs rounded outline-none" value={editData.monto_base} onChange={e => setEditData({...editData, monto_base: e.target.value})} /></td>
-                          <td className="px-2 py-1 border-r border-gray-200"><input type="number" className="w-16 border border-blue-300 p-1 text-center text-xs rounded outline-none" value={editData.porcentaje_inflacion} onChange={e => setEditData({...editData, porcentaje_inflacion: e.target.value})} /></td>
-                          <td className="px-3 py-2.5 text-right font-bold text-gray-400 border-r border-gray-200 bg-gray-100 italic">Auto...</td>
-                          <td className="px-2 py-1 border-r border-gray-200"><input className="w-32 border border-blue-300 p-1 text-xs rounded outline-none" value={editData.responsable_afip} onChange={e => setEditData({...editData, responsable_afip: e.target.value})} /></td>
-                          <td className="px-2 py-1 border-r border-gray-200"><input className="w-24 border border-blue-300 p-1 text-xs rounded outline-none" value={editData.cuit_responsable} onChange={e => setEditData({...editData, cuit_responsable: e.target.value})} /></td>
-                          <td className="px-2 py-1 border-r border-gray-200"><input className="w-full border border-blue-300 p-1 text-xs rounded outline-none" value={editData.descripcion} onChange={e => setEditData({...editData, descripcion: e.target.value})} /></td>
-                        </>
-                      ) : (
-                        <>
-                          <td className="px-3 py-2.5 text-right font-mono text-gray-700 border-r border-gray-200">{formatARS(row.monto_base)}</td>
-                          <td className="px-3 py-2.5 text-center font-bold border-r border-gray-200">{row.porcentaje_inflacion > 0 ? `${row.porcentaje_inflacion}%` : '-'}</td>
-                          <td className="px-3 py-2.5 text-right font-mono font-bold border-r border-gray-200 bg-jengibre-cream/50">{formatARS(row.monto_final || row.monto_base)}</td>
-                          <td className="px-3 py-2.5 text-gray-700 border-r border-gray-200">{row.responsable_afip || '-'}</td>
-                          <td className="px-3 py-2.5 font-mono text-gray-600 border-r border-gray-200">{row.cuit_responsable || '-'}</td>
-                          <td className="px-3 py-2.5 text-gray-600 border-r border-gray-200 truncate max-w-[250px]" title={row.descripcion}>{row.descripcion || '-'}</td>
-                        </>
-                      )}
-
-                      <td className="px-3 py-2.5 border-r border-gray-200 text-center">
-                        <select 
-                          className={`text-xs font-bold rounded px-1.5 py-1 outline-none cursor-pointer border ${
-                            row.estado === 'pagado' ? 'bg-green-100 text-green-800 border-green-200' :
-                            row.estado === 'enviada' ? 'bg-amber-100 text-amber-800 border-amber-200' :
-                            'bg-gray-100 text-gray-600 border-gray-200'
-                          }`}
-                          value={row.estado}
-                          onChange={(e) => updateEstadoMutation.mutate({ id: row.id, estado: e.target.value })}
-                        >
-                          <option value="por_enviar">Por Facturar</option>
-                          <option value="enviada">Enviada</option>
-                          <option value="pagado">Pagado</option>
-                        </select>
-                      </td>
-
-                      <td className="px-3 py-2.5 bg-gray-50">
-                        <div className="flex items-center justify-center gap-2">
-                          {isEditing ? (
-                            <button onClick={saveEditing} className="p-1 bg-green-100 text-green-700 rounded shadow-sm hover:bg-green-200"><Save size={16} /></button>
-                          ) : (
-                            <>
-                              <button onClick={() => handleSolicitarFactura(row)} className="flex items-center gap-1 px-2 py-1 bg-green-100 text-green-700 hover:bg-green-200 rounded text-[11px] font-bold border border-green-200">
-                                <MessageCircle size={12} /> Solicitar
-                              </button>
-                              <button onClick={() => startEditing(row)} className="p-1 text-gray-400 hover:text-blue-600"><Edit2 size={16} /></button>
-                              <button onClick={() => { if(confirm('¿Eliminar?')) deleteMutation.mutate(row.id); }} className="p-1 text-gray-400 hover:text-red-600"><Trash2 size={16} /></button>
-                            </>
-                          )}
-                        </div>
-                      </td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
+        ) : groupedFacturas.length === 0 ? (
+          <div className="p-12 text-center text-gray-500 bg-white border border-jengibre-border rounded-xl shadow-sm">
+            <div className="bg-gray-50 w-16 h-16 rounded-full flex items-center justify-center mx-auto mb-4 text-gray-400"><Building size={32} /></div>
+            No hay facturación generada. Ve a un cliente para generar su cronograma o agrega una fila manual.
           </div>
+        ) : (
+          groupedFacturas.map((group) => {
+            const isExpanded = expandedGroups.includes(group.id);
+            const isManual = group.id === 'manual';
+            
+            return (
+              <div key={group.id} className="bg-white border border-jengibre-border rounded-xl shadow-sm overflow-hidden transition-all duration-300">
+                {/* HEADER DEL ACORDEÓN */}
+                <div 
+                  onClick={() => toggleGroup(group.id)}
+                  className="p-5 flex flex-col sm:flex-row sm:items-center justify-between gap-4 cursor-pointer hover:bg-gray-50/80 transition-colors select-none"
+                >
+                  <div className="flex items-center gap-4">
+                    <div className={`p-2 rounded-lg ${isExpanded ? 'bg-jengibre-primary text-white' : 'bg-jengibre-cream text-jengibre-primary'}`}>
+                      {isExpanded ? <ChevronDown size={20} /> : <ChevronRight size={20} />}
+                    </div>
+                    <div>
+                      <h3 className="font-display font-bold text-xl text-gray-900">{group.nombre}</h3>
+                      {group.cuit && <p className="text-sm text-gray-500 font-mono mt-0.5">CUIT: {group.cuit}</p>}
+                    </div>
+                  </div>
+                  
+                  <div className="flex items-center gap-6 sm:ml-auto border-t sm:border-t-0 pt-3 sm:pt-0">
+                    <div className="text-left sm:text-right flex-1">
+                      <p className="text-xs font-bold text-gray-400 uppercase tracking-wider mb-1">Avance de cobros</p>
+                      <p className="font-mono text-sm">
+                        <span className="font-bold text-green-600">{formatARS(group.totalPagado)}</span> 
+                        <span className="text-gray-300 mx-1.5">/</span> 
+                        <span className="font-bold text-gray-900">{formatARS(group.totalMonto)}</span>
+                      </p>
+                    </div>
+                    <div className="text-xs font-bold bg-gray-100 px-3 py-1.5 rounded-md text-gray-600 shrink-0">
+                      {group.items.length} cuotas
+                    </div>
+                  </div>
+                </div>
+
+                {/* CONTENIDO (TABLA) */}
+                {isExpanded && (
+                  <div className="border-t border-jengibre-border bg-[#fdfcfa] overflow-x-auto p-4 animate-in slide-in-from-top-2">
+                    <table className="w-full text-left border-collapse whitespace-nowrap text-sm bg-white border border-gray-200 rounded-lg overflow-hidden shadow-sm">
+                      <thead>
+                        <tr className="bg-gray-50 text-gray-700 border-b border-gray-200 font-bold text-[11px] uppercase tracking-wider">
+                          <th className="px-3 py-3 border-r border-gray-200 text-center w-20">Cuota</th>
+                          <th className="px-3 py-3 border-r border-gray-200 text-center w-32">Mes</th>
+                          <th className="px-3 py-3 border-r border-gray-200 text-right w-32">Monto Base</th>
+                          <th className="px-3 py-3 border-r border-gray-200 text-center w-24">Inflación</th>
+                          <th className="px-3 py-3 border-r border-gray-200 text-right w-36 bg-jengibre-cream/30">Monto Final</th>
+                          <th className="px-3 py-3 border-r border-gray-200">Factura a nombre de</th>
+                          <th className="px-3 py-3 border-r border-gray-200">CUIT Resp.</th>
+                          <th className="px-3 py-3 border-r border-gray-200 min-w-[200px]">Descripción / Concepto</th>
+                          <th className="px-3 py-3 border-r border-gray-200 text-center w-36">Estado</th>
+                          <th className="px-3 py-3 text-center w-28 bg-gray-50">Acciones</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {group.items.map((row: any) => {
+                          const isEditing = editingId === row.id;
+                          const mesNombre = new Date(row.mes).toLocaleDateString('es-AR', { month: 'short', year: 'numeric', timeZone: 'UTC' });
+                          
+                          return (
+                            <tr key={row.id} className="border-b border-gray-100 hover:bg-gray-50/50">
+                              <td className="px-3 py-2.5 font-bold text-center border-r border-gray-100">{row.cuota}</td>
+                              <td className="px-3 py-2.5 text-center capitalize border-r border-gray-100 font-medium">{mesNombre}</td>
+                              
+                              {/* EDICIÓN EN LÍNEA */}
+                              {isEditing ? (
+                                <>
+                                  <td className="px-2 py-1 border-r border-gray-100"><input type="number" className="w-full border border-blue-300 p-1.5 text-right text-xs rounded outline-none" value={editData.monto_base} onChange={e => setEditData({...editData, monto_base: e.target.value})} /></td>
+                                  <td className="px-2 py-1 border-r border-gray-100"><input type="number" className="w-full border border-blue-300 p-1.5 text-center text-xs rounded outline-none" value={editData.porcentaje_inflacion} onChange={e => setEditData({...editData, porcentaje_inflacion: e.target.value})} /></td>
+                                  <td className="px-3 py-2.5 text-right font-bold text-gray-400 border-r border-gray-100 bg-gray-50 italic">Automático</td>
+                                  <td className="px-2 py-1 border-r border-gray-100"><input className="w-full border border-blue-300 p-1.5 text-xs rounded outline-none" value={editData.responsable_afip} onChange={e => setEditData({...editData, responsable_afip: e.target.value})} /></td>
+                                  <td className="px-2 py-1 border-r border-gray-100"><input className="w-full border border-blue-300 p-1.5 text-xs rounded outline-none font-mono" value={editData.cuit_responsable} onChange={e => setEditData({...editData, cuit_responsable: e.target.value})} /></td>
+                                  <td className="px-2 py-1 border-r border-gray-100"><input className="w-full border border-blue-300 p-1.5 text-xs rounded outline-none" value={editData.descripcion} onChange={e => setEditData({...editData, descripcion: e.target.value})} /></td>
+                                </>
+                              ) : (
+                                <>
+                                  <td className="px-3 py-2.5 text-right font-mono text-gray-700 border-r border-gray-100">{formatARS(row.monto_base)}</td>
+                                  <td className="px-3 py-2.5 text-center font-bold border-r border-gray-100 text-blue-700">{row.porcentaje_inflacion > 0 ? `+${row.porcentaje_inflacion}%` : '-'}</td>
+                                  <td className="px-3 py-2.5 text-right font-mono font-bold border-r border-gray-100 bg-jengibre-cream/20 text-gray-900">{formatARS(row.monto_final || row.monto_base)}</td>
+                                  <td className="px-3 py-2.5 text-gray-700 border-r border-gray-100">{row.responsable_afip || '-'}</td>
+                                  <td className="px-3 py-2.5 font-mono text-gray-500 border-r border-gray-100 text-xs">{row.cuit_responsable || '-'}</td>
+                                  <td className="px-3 py-2.5 text-gray-600 border-r border-gray-100 truncate max-w-[250px]" title={row.descripcion}>{row.descripcion || '-'}</td>
+                                </>
+                              )}
+
+                              {/* SELECTOR DE ESTADO */}
+                              <td className="px-3 py-2.5 border-r border-gray-100 text-center">
+                                <select 
+                                  className={`text-xs font-bold rounded px-2 py-1.5 outline-none cursor-pointer border w-full text-center appearance-none ${
+                                    row.estado === 'pagado' ? 'bg-green-100 text-green-800 border-green-200' :
+                                    row.estado === 'enviada' ? 'bg-amber-100 text-amber-800 border-amber-200' :
+                                    'bg-gray-100 text-gray-600 border-gray-200'
+                                  }`}
+                                  value={row.estado}
+                                  onChange={(e) => updateEstadoMutation.mutate({ id: row.id, estado: e.target.value })}
+                                >
+                                  <option value="por_enviar">⌛ Por Facturar</option>
+                                  <option value="enviada">📄 Factura Enviada</option>
+                                  <option value="pagado">✅ Pagado</option>
+                                </select>
+                              </td>
+
+                              {/* ACCIONES */}
+                              <td className="px-3 py-2.5">
+                                <div className="flex items-center justify-center gap-2">
+                                  {isEditing ? (
+                                    <button onClick={saveEditing} className="p-1.5 bg-green-100 text-green-700 rounded shadow-sm hover:bg-green-200" title="Guardar"><Save size={16} /></button>
+                                  ) : (
+                                    <>
+                                      <button onClick={() => handleSolicitarFactura(row)} className="p-1.5 text-green-600 bg-green-50 hover:bg-green-100 rounded border border-green-100" title="Solicitar a contadora por WhatsApp">
+                                        <MessageCircle size={16} />
+                                      </button>
+                                      <button onClick={() => startEditing(row)} className="p-1.5 text-gray-400 hover:text-blue-600" title="Editar cuota"><Edit2 size={16} /></button>
+                                      <button onClick={() => { if(confirm('¿Eliminar esta cuota?')) deleteMutation.mutate(row.id); }} className="p-1.5 text-gray-400 hover:text-red-600" title="Eliminar"><Trash2 size={16} /></button>
+                                    </>
+                                  )}
+                                </div>
+                              </td>
+                            </tr>
+                          );
+                        })}
+                      </tbody>
+                    </table>
+                  </div>
+                )}
+              </div>
+            );
+          })
         )}
       </div>
     </div>
