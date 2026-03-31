@@ -33,6 +33,10 @@ export default function Clientes() {
       // Extraemos campos que NO van a la tabla clientes
       const { generar_cronograma, cantidad_cuotas, cuota_monto, cuota_mes_inicio, ...payload } = clientData;
       
+      // PREVENIR ERROR DE FECHAS VACÍAS
+      if (!payload.fecha_inicio) payload.fecha_inicio = null;
+      if (!payload.fecha_fin) payload.fecha_fin = null;
+      
       let clientId = editingId;
 
       if (editingId) {
