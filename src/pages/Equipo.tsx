@@ -2,22 +2,26 @@ import React, { useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { supabase } from '@/integrations/supabase/client';
 import { TipAlert } from '@/components/TipAlert';
-import { Plus, Edit2, Trash2, Users, Award, Calculator, Building } from 'lucide-react';
+import { Plus, Edit2, Trash2, Users, Award, Building, MessageCircle } from 'lucide-react';
 import { formatARS } from '@/lib/utils';
 import { showSuccess, showError } from '@/utils/toast';
 
 // Helper para parsear las notas guardadas como JSON de forma segura
 const parseNotas = (notasStr: string | null) => {
-  if (!notasStr) return { texto: '', asignaciones: {} as Record<string, number> };
+  if (!notasStr) return { texto: '', telefono: '', asignaciones: {} as Record<string, number> };
   try {
     const parsed = JSON.parse(notasStr);
     if (parsed && typeof parsed === 'object' && parsed.asignaciones) {
-      return parsed;
+      return { 
+        texto: parsed.texto || '', 
+        telefono: parsed.telefono || '',
+        asignaciones: parsed.asignaciones 
+      };
     }
   } catch (e) {
     // Si no es JSON, es una nota de texto antigua
   }
-  return { texto: notasStr, asignaciones: {} };
+  return { texto: notasStr, telefono: '', asignaciones: {} };
 };
 
 export default function Equipo() {
@@ -28,11 +32,12 @@ export default function Equipo() {
   // Estado para el modal de Bono de Renovación
   const [bonusModalOpen, setBonusModalOpen] = useState<{miembro: any, isOpen: boolean}>({ miembro: null, isOpen: false });
   const [selectedBonusProject, setSelectedBonusProject] = useState<string>('');
+  const [incluirBono, setIncluirBono] = useState(true);
   
   const defaultForm = {
     nombre: '', rol: '', honorario_mensual: 0,
     condicion_fiscal: 'Monotributo', genera_credito_fiscal: false, activo: true,
-    notasTexto: '', asignaciones: {} as Record<string, number>
+    notasTexto: '', telefono: '', asignaciones: {} as Record<string, number>
   };
   const [formData, setFormData] = useState(defaultForm);
 
@@ -56,9 +61,10 @@ export default function Equipo() {
 
   const saveMutation = useMutation({
     mutationFn: async (miembroData: typeof formData) => {
-      // Empaquetamos las asignaciones en el campo notas como JSON
+      // Empaquetamos las asignaciones y el teléfono en el campo notas como JSON
       const jsonNotas = JSON.stringify({
         texto: miembroData.notasTexto,
+        telefono: miembroData.telefono,
         asignaciones: miembroData.asignaciones
       });
 
@@ -101,7 +107,6 @@ export default function Equipo() {
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    // Limpiamos asignaciones en 0 o vacías antes de guardar
     const cleanAsignaciones: Record<string, number> = {};
     Object.entries(formData.asignaciones).forEach(([k, v]) => {
       if (Number(v) > 0) cleanAsignaciones[k] = Number(v);
@@ -119,6 +124,7 @@ export default function Equipo() {
       genera_credito_fiscal: miembro.genera_credito_fiscal || false,
       activo: miembro.activo ?? true,
       notasTexto: notasData.texto || '',
+      telefono: notasData.telefono || '',
       asignaciones: notasData.asignaciones || {}
     });
     setEditingId(miembro.id);
@@ -138,6 +144,42 @@ export default function Equipo() {
     }));
   };
 
+  // Función unificada para enviar liquidación por WhatsApp
+  const handleWhatsApp = (miembro: any, bonoExtra: number = 0, nombreProyectoBono: string = '') => {
+    const notasData = parseNotas(miembro.notas);
+    
+    let proyectosActivosCount = 0;
+    const honorarioProyectos = Object.entries(notasData.asignaciones).reduce((acc, [cId, monto]) => {
+      const c = clientes?.find((cl: any) => cl.id === cId);
+      if (c && c.estado === 'activo') {
+        proyectosActivosCount++;
+        return acc + Number(monto);
+      }
+      return acc;
+    }, 0);
+    
+    const total = Number(miembro.honorario_mensual) + honorarioProyectos + bonoExtra;
+    const phone = notasData.telefono ? notasData.telefono.replace(/\D/g, '') : '';
+    
+    let msg = `¡Hola ${miembro.nombre}! Te paso el detalle de la liquidación de este mes.%0A%0A`;
+    
+    if (Number(miembro.honorario_mensual) > 0) {
+      msg += `*Sueldo Base:* ${formatARS(miembro.honorario_mensual)}%0A`;
+    }
+    if (proyectosActivosCount > 0) {
+      msg += `*Asignación por prestación de servicio (${proyectosActivosCount} proyectos activos):* ${formatARS(honorarioProyectos)}%0A`;
+    }
+    if (bonoExtra > 0) {
+      msg += `*Bono Incentivo (15% por renovación en ${nombreProyectoBono}):* ${formatARS(bonoExtra)}%0A`;
+    }
+    
+    msg += `%0A*TOTAL A FACTURAR:* ${formatARS(total)}%0A%0A`;
+    msg += `Por favor, cuando puedas generá la factura correspondiente por este monto para que podamos avanzar con el pago. ¡Gracias!`;
+    
+    const url = phone ? `https://wa.me/${phone}?text=${msg}` : `https://wa.me/?text=${msg}`;
+    window.open(url, '_blank');
+  };
+
   const isLoading = loadingEquipo || loadingClientes;
 
   return (
@@ -155,8 +197,8 @@ export default function Equipo() {
         </button>
       </header>
 
-      <TipAlert id="equipo_proyectos" title="💡 Remuneración basada en Proyectos">
-        El sueldo de cada persona se calcula sumando un <strong>Sueldo Base</strong> más la asignación que tenga en los <strong>Proyectos Activos</strong>. Si un contrato se pausa o da de baja en la pestaña Clientes, automáticamente se descontará del honorario de este mes.
+      <TipAlert id="equipo_proyectos" title="💡 Remuneración y Liquidaciones">
+        Calculá automáticamente el total a pagar según los proyectos activos y enviá el detalle de facturación al equipo por WhatsApp con un solo clic.
       </TipAlert>
 
       {/* MODAL CREAR / EDITAR */}
@@ -171,14 +213,18 @@ export default function Equipo() {
               {/* DATOS BÁSICOS */}
               <div className="bg-gray-50 p-4 rounded-xl border border-gray-100 space-y-4">
                 <h3 className="font-bold text-gray-800 text-sm uppercase tracking-wider">Datos Principales</h3>
-                <div className="grid grid-cols-2 gap-4">
-                  <div className="col-span-2 sm:col-span-1">
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                  <div>
                     <label className="block text-sm font-medium text-gray-700 mb-1">Nombre Completo</label>
                     <input required autoFocus className="w-full border border-gray-300 rounded-lg p-2.5 focus:ring-2 focus:ring-jengibre-primary outline-none bg-white" value={formData.nombre} onChange={e => setFormData({...formData, nombre: e.target.value})} />
                   </div>
-                  <div className="col-span-2 sm:col-span-1">
+                  <div>
                     <label className="block text-sm font-medium text-gray-700 mb-1">Rol / Puesto</label>
-                    <input className="w-full border border-gray-300 rounded-lg p-2.5 focus:ring-2 focus:ring-jengibre-primary outline-none bg-white" value={formData.rol} onChange={e => setFormData({...formData, rol: e.target.value})} placeholder="Ej: Visual, PM, Soporte..." />
+                    <input className="w-full border border-gray-300 rounded-lg p-2.5 focus:ring-2 focus:ring-jengibre-primary outline-none bg-white" value={formData.rol} onChange={e => setFormData({...formData, rol: e.target.value})} placeholder="Ej: Visual, PM..." />
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">WhatsApp / Teléfono</label>
+                    <input className="w-full border border-gray-300 rounded-lg p-2.5 focus:ring-2 focus:ring-jengibre-primary outline-none bg-white" value={formData.telefono} onChange={e => setFormData({...formData, telefono: e.target.value})} placeholder="+54 9..." />
                   </div>
                 </div>
 
@@ -297,13 +343,39 @@ export default function Equipo() {
                   <p className="text-3xl font-mono font-bold text-amber-600">
                     {formatARS(Number(parseNotas(bonusModalOpen.miembro.notas).asignaciones[selectedBonusProject]) * 0.15)}
                   </p>
-                  <p className="text-xs text-amber-600/80 mt-2">Pago extraordinario por única vez.</p>
+                  
+                  <div className="mt-4 pt-4 border-t border-amber-200/50 flex items-center justify-center gap-2">
+                    <input 
+                      type="checkbox" id="addBonus" 
+                      className="w-4 h-4 rounded border-amber-300 text-amber-600 focus:ring-amber-500" 
+                      checked={incluirBono} onChange={e => setIncluirBono(e.target.checked)}
+                    />
+                    <label htmlFor="addBonus" className="text-sm text-amber-800 font-medium cursor-pointer">
+                      Sumar al pago de este mes
+                    </label>
+                  </div>
                 </div>
               )}
             </div>
 
-            <div className="flex justify-end gap-3 mt-6">
-              <button onClick={() => {setBonusModalOpen({miembro: null, isOpen: false}); setSelectedBonusProject('');}} className="px-4 py-2 w-full bg-gray-100 text-gray-700 hover:bg-gray-200 rounded-lg font-medium transition-colors">
+            <div className="flex flex-col gap-2 mt-6">
+              <button 
+                onClick={() => {
+                  const bonoExtra = incluirBono && selectedBonusProject ? Number(parseNotas(bonusModalOpen.miembro.notas).asignaciones[selectedBonusProject]) * 0.15 : 0;
+                  const c = clientes?.find((cl: any) => cl.id === selectedBonusProject);
+                  handleWhatsApp(bonusModalOpen.miembro, bonoExtra, c?.nombre || '');
+                  setBonusModalOpen({miembro: null, isOpen: false});
+                  setSelectedBonusProject('');
+                }} 
+                disabled={!selectedBonusProject}
+                className="w-full bg-[#25D366] hover:bg-[#1ebd5c] text-white py-2.5 rounded-lg font-bold transition-colors flex items-center justify-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                <MessageCircle size={18} /> Enviar Liquidación con Bono
+              </button>
+              <button 
+                onClick={() => {setBonusModalOpen({miembro: null, isOpen: false}); setSelectedBonusProject('');}} 
+                className="px-4 py-2 w-full text-gray-500 hover:bg-gray-100 rounded-lg font-medium transition-colors"
+              >
                 Cerrar
               </button>
             </div>
@@ -355,7 +427,10 @@ export default function Equipo() {
 
                   return (
                     <tr key={miembro.id} className="border-b border-gray-100 hover:bg-gray-50 transition-colors group">
-                      <td className="px-4 py-4 font-bold text-gray-900">{miembro.nombre}</td>
+                      <td className="px-4 py-4 font-bold text-gray-900">
+                        {miembro.nombre}
+                        {notasData.telefono && <p className="text-xs text-gray-400 font-normal">{notasData.telefono}</p>}
+                      </td>
                       <td className="px-4 py-4 text-sm text-gray-600">{miembro.rol || '-'}</td>
                       
                       <td className="px-4 py-4 text-center">
@@ -388,15 +463,25 @@ export default function Equipo() {
                       
                       <td className="px-4 py-4">
                         <div className="flex items-center justify-center gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
+                          
+                          <button 
+                            onClick={() => handleWhatsApp(miembro, 0, '')} 
+                            className="p-1.5 text-[#25D366] hover:bg-[#25D366]/10 rounded-lg"
+                            title="Enviar liquidación mensual por WhatsApp"
+                          >
+                            <MessageCircle size={18} />
+                          </button>
+
                           {hasProjects && (
                             <button 
-                              onClick={() => { setBonusModalOpen({miembro, isOpen: true}); setSelectedBonusProject(''); }} 
+                              onClick={() => { setBonusModalOpen({miembro, isOpen: true}); setSelectedBonusProject(''); setIncluirBono(true); }} 
                               className="p-1.5 text-amber-600 bg-amber-50 hover:bg-amber-100 rounded-lg border border-amber-100 flex items-center gap-1 px-2"
                               title="Calcular bono 15% por renovación"
                             >
                               <Award size={14} /> <span className="text-xs font-bold">Bono</span>
                             </button>
                           )}
+                          <div className="w-px h-4 bg-gray-200 mx-1"></div>
                           <button onClick={() => openEdit(miembro)} className="p-1.5 text-gray-400 hover:text-blue-600 hover:bg-blue-50 rounded-lg" title="Editar configuraciones"><Edit2 size={16} /></button>
                           <button onClick={() => { if(confirm('¿Eliminar miembro?')) deleteMutation.mutate(miembro.id); }} className="p-1.5 text-gray-400 hover:text-red-600 hover:bg-red-50 rounded-lg" title="Eliminar"><Trash2 size={16} /></button>
                         </div>
