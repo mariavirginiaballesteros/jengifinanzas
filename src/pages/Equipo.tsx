@@ -99,11 +99,6 @@ export default function Equipo() {
         </button>
       </header>
 
-      <TipAlert id="equipo_intro" title="💡 Tip de uso: Crédito Fiscal">
-        Si un miembro del equipo es Responsable Inscripto y emite Factura A, marcá la opción "Genera Crédito Fiscal (IVA)". 
-        Esto permitirá que el sistema calcule automáticamente cuánto IVA tenés a favor cada mes cuando cargues sus pagos.
-      </TipAlert>
-
       {isFormOpen && (
         <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4">
           <div className="bg-white rounded-2xl w-full max-w-lg p-6 shadow-xl animate-in zoom-in-95">
@@ -125,7 +120,6 @@ export default function Equipo() {
                   <input 
                     className="w-full border border-gray-300 rounded-lg p-2.5 focus:ring-2 focus:ring-jengibre-primary outline-none" 
                     value={formData.rol} onChange={e => setFormData({...formData, rol: e.target.value})}
-                    placeholder="Ej: Diseñador UI"
                   />
                 </div>
                 <div>
@@ -175,9 +169,7 @@ export default function Equipo() {
               </div>
 
               <div className="flex justify-end gap-3 mt-8">
-                <button type="button" onClick={closeForm} className="px-4 py-2 text-gray-600 hover:bg-gray-100 rounded-lg font-medium transition-colors">
-                  Cancelar
-                </button>
+                <button type="button" onClick={closeForm} className="px-4 py-2 text-gray-600 hover:bg-gray-100 rounded-lg font-medium transition-colors">Cancelar</button>
                 <button type="submit" disabled={saveMutation.isPending} className="bg-jengibre-primary hover:bg-[#a64120] text-white px-6 py-2 rounded-lg font-medium transition-colors disabled:opacity-50">
                   {saveMutation.isPending ? 'Guardando...' : 'Guardar'}
                 </button>
@@ -187,61 +179,62 @@ export default function Equipo() {
         </div>
       )}
 
-      {/* Lista de Equipo */}
-      {isLoading ? (
-        <div className="flex justify-center py-12"><div className="w-8 h-8 border-4 border-jengibre-primary border-t-transparent rounded-full animate-spin"></div></div>
-      ) : equipo?.length === 0 ? (
-        <div className="bg-white border border-gray-200 rounded-2xl p-12 text-center">
-          <div className="bg-gray-50 w-16 h-16 rounded-full flex items-center justify-center mx-auto mb-4 text-gray-400">
-            <Users size={32} />
+      {/* TABLA DE EQUIPO */}
+      <div className="bg-white border border-jengibre-border rounded-2xl overflow-hidden shadow-sm">
+        {isLoading ? (
+          <div className="flex justify-center py-12"><div className="w-8 h-8 border-4 border-jengibre-primary border-t-transparent rounded-full animate-spin"></div></div>
+        ) : equipo?.length === 0 ? (
+          <div className="p-12 text-center">
+            <div className="bg-gray-50 w-16 h-16 rounded-full flex items-center justify-center mx-auto mb-4 text-gray-400"><Users size={32} /></div>
+            <h3 className="text-xl font-bold text-gray-800 mb-2">Tu equipo está vacío</h3>
+            <button onClick={() => setIsFormOpen(true)} className="text-jengibre-primary font-bold hover:underline">+ Agregar miembro</button>
           </div>
-          <h3 className="text-xl font-bold text-gray-800 mb-2">Tu equipo está vacío</h3>
-          <p className="text-gray-500 mb-6">Agregá a los miembros para poder gestionar sus pagos y honorarios.</p>
-          <button onClick={() => setIsFormOpen(true)} className="text-jengibre-primary font-bold hover:underline">
-            + Agregar miembro
-          </button>
-        </div>
-      ) : (
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-          {equipo?.map((miembro) => (
-            <div key={miembro.id} className="bg-white border border-jengibre-border rounded-2xl p-5 shadow-sm hover:shadow-md transition-all group flex flex-col">
-              <div className="flex justify-between items-start mb-2">
-                <div>
-                  <h3 className="font-bold text-gray-900 text-lg leading-tight">{miembro.nombre}</h3>
-                  <p className="text-jengibre-primary font-medium text-sm">{miembro.rol}</p>
-                </div>
-                <div className="flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
-                  <button onClick={() => openEdit(miembro)} className="p-1.5 text-gray-400 hover:text-blue-600 hover:bg-blue-50 rounded-lg transition-colors">
-                    <Edit2 size={16} />
-                  </button>
-                  <button onClick={() => { if(confirm('¿Eliminar miembro?')) deleteMutation.mutate(miembro.id); }} className="p-1.5 text-gray-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition-colors">
-                    <Trash2 size={16} />
-                  </button>
-                </div>
-              </div>
-              
-              <div className="mt-auto pt-4 flex flex-wrap gap-2">
-                <span className={`text-xs px-2.5 py-1 rounded-full font-medium ${miembro.activo ? 'bg-green-100 text-green-700' : 'bg-gray-100 text-gray-600'}`}>
-                  {miembro.activo ? 'Activo' : 'Inactivo'}
-                </span>
-                <span className="text-xs px-2.5 py-1 rounded-full bg-gray-100 text-gray-700 font-medium">
-                  {miembro.condicion_fiscal}
-                </span>
-                {miembro.genera_credito_fiscal && (
-                  <span className="text-xs px-2.5 py-1 rounded-full bg-blue-100 text-blue-700 font-medium">
-                    + IVA
-                  </span>
-                )}
-              </div>
-              
-              <div className="mt-4 pt-4 border-t border-gray-100 flex justify-between items-center">
-                <span className="text-sm text-gray-500">Honorario base</span>
-                <span className="font-mono font-bold text-gray-900 text-lg">{formatARS(miembro.honorario_mensual)}</span>
-              </div>
-            </div>
-          ))}
-        </div>
-      )}
+        ) : (
+          <div className="overflow-x-auto">
+            <table className="w-full text-left border-collapse whitespace-nowrap">
+              <thead>
+                <tr className="bg-jengibre-cream/50 text-jengibre-dark text-sm border-b border-jengibre-border">
+                  <th className="px-4 py-3 font-bold">Nombre</th>
+                  <th className="px-4 py-3 font-bold">Rol</th>
+                  <th className="px-4 py-3 font-bold text-right">Honorario Base</th>
+                  <th className="px-4 py-3 font-bold">Condición Fiscal</th>
+                  <th className="px-4 py-3 font-bold text-center">Crédito Fiscal</th>
+                  <th className="px-4 py-3 font-bold text-center">Estado</th>
+                  <th className="px-4 py-3 font-bold text-center">Acciones</th>
+                </tr>
+              </thead>
+              <tbody>
+                {equipo?.map((miembro) => (
+                  <tr key={miembro.id} className="border-b border-gray-100 hover:bg-gray-50 transition-colors group">
+                    <td className="px-4 py-4 font-bold text-gray-900">{miembro.nombre}</td>
+                    <td className="px-4 py-4 text-sm text-gray-600">{miembro.rol}</td>
+                    <td className="px-4 py-4 text-right font-mono font-bold text-gray-900">{formatARS(miembro.honorario_mensual)}</td>
+                    <td className="px-4 py-4 text-sm text-gray-600">
+                      <span className="bg-gray-100 px-2 py-1 rounded">{miembro.condicion_fiscal}</span>
+                    </td>
+                    <td className="px-4 py-4 text-center">
+                      {miembro.genera_credito_fiscal ? (
+                        <span className="text-[10px] px-2 py-1 rounded-full bg-blue-100 text-blue-700 font-bold uppercase">+ IVA</span>
+                      ) : <span className="text-gray-400">-</span>}
+                    </td>
+                    <td className="px-4 py-4 text-center">
+                      <span className={`text-[10px] px-2 py-1 rounded-full font-bold uppercase ${miembro.activo ? 'bg-green-100 text-green-700' : 'bg-gray-100 text-gray-600'}`}>
+                        {miembro.activo ? 'Activo' : 'Inactivo'}
+                      </span>
+                    </td>
+                    <td className="px-4 py-4">
+                      <div className="flex items-center justify-center gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
+                        <button onClick={() => openEdit(miembro)} className="p-1.5 text-gray-400 hover:text-blue-600 hover:bg-blue-50 rounded-lg"><Edit2 size={16} /></button>
+                        <button onClick={() => { if(confirm('¿Eliminar miembro?')) deleteMutation.mutate(miembro.id); }} className="p-1.5 text-gray-400 hover:text-red-600 hover:bg-red-50 rounded-lg"><Trash2 size={16} /></button>
+                      </div>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </div>
     </div>
   );
 }

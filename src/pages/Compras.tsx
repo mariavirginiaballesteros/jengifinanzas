@@ -1,7 +1,6 @@
 import React, { useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { supabase } from '@/integrations/supabase/client';
-import { TipAlert } from '@/components/TipAlert';
 import { Plus, Edit2, Trash2, ShoppingCart, Receipt } from 'lucide-react';
 import { formatARS } from '@/lib/utils';
 import { showSuccess, showError } from '@/utils/toast';
@@ -32,7 +31,6 @@ export default function Compras() {
 
   const saveMutation = useMutation({
     mutationFn: async (compraData: any) => {
-      // Limpiar datos
       const payload = { 
         ...compraData, 
         monto_total: Number(compraData.monto_total),
@@ -92,7 +90,6 @@ export default function Compras() {
     setFormData(defaultForm);
   };
 
-  // Autocalcular IVA 21% aproximado (Monto Total / 1.21 * 0.21)
   const calcularIva = () => {
     if (formData.monto_total) {
       const base = Number(formData.monto_total) / 1.21;
@@ -102,7 +99,7 @@ export default function Compras() {
   };
 
   return (
-    <div className="animate-in fade-in duration-500">
+    <div className="animate-in fade-in duration-500 pb-12">
       <header className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-8">
         <div>
           <h1 className="text-3xl font-display font-bold text-jengibre-dark">Compras y Crédito Fiscal</h1>
@@ -116,11 +113,6 @@ export default function Compras() {
         </button>
       </header>
 
-      <TipAlert id="compras_intro" title="💡 Tip de uso: ¿Por qué cargar las compras acá?">
-        Si pagás honorarios a colaboradores, suscripciones de software o comprás equipos, podés pedir Factura "A". 
-        Cargarla acá te ayuda a calcular automáticamente cuánto IVA tenés a tu favor para descontarlo de lo que le tenés que pagar a AFIP.
-      </TipAlert>
-
       {isFormOpen && (
         <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4">
           <div className="bg-white rounded-2xl w-full max-w-lg p-6 shadow-xl animate-in zoom-in-95 max-h-[90vh] overflow-y-auto">
@@ -129,7 +121,6 @@ export default function Compras() {
               {editingId ? 'Editar Factura' : 'Cargar Factura de Compra'}
             </h2>
             <form onSubmit={handleSubmit} className="space-y-4">
-              
               <div className="grid grid-cols-2 gap-4">
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-1">Fecha de Factura</label>
@@ -140,11 +131,10 @@ export default function Compras() {
                   />
                 </div>
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">Nº Comprobante (Opcional)</label>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">Nº Comprobante</label>
                   <input 
                     className="w-full border border-gray-300 rounded-lg p-2.5 focus:ring-2 focus:ring-jengibre-primary outline-none" 
                     value={formData.comprobante_nro} onChange={e => setFormData({...formData, comprobante_nro: e.target.value})}
-                    placeholder="Ej: 0001-00001234"
                   />
                 </div>
               </div>
@@ -155,7 +145,6 @@ export default function Compras() {
                   required autoFocus
                   className="w-full border border-gray-300 rounded-lg p-2.5 focus:ring-2 focus:ring-jengibre-primary outline-none" 
                   value={formData.proveedor} onChange={e => setFormData({...formData, proveedor: e.target.value})}
-                  placeholder="Ej: MercadoLibre, Adobe, Juan Perez..."
                 />
               </div>
 
@@ -165,7 +154,6 @@ export default function Compras() {
                   required
                   className="w-full border border-gray-300 rounded-lg p-2.5 focus:ring-2 focus:ring-jengibre-primary outline-none" 
                   value={formData.concepto} onChange={e => setFormData({...formData, concepto: e.target.value})}
-                  placeholder="Ej: Suscripción Adobe Creative Cloud"
                 />
               </div>
 
@@ -192,17 +180,13 @@ export default function Compras() {
                       type="number" min="0" step="0.01"
                       className="w-full border border-gray-300 rounded-lg p-2.5 pl-8 focus:ring-2 focus:ring-blue-500 outline-none font-mono bg-blue-50" 
                       value={formData.iva_credito} onChange={e => setFormData({...formData, iva_credito: e.target.value})}
-                      placeholder="0.00"
                     />
                   </div>
                 </div>
               </div>
-              <p className="text-xs text-gray-500 mt-1">Si la factura es "C" (Monotributo), el IVA es 0.</p>
 
               <div className="flex justify-end gap-3 mt-8 pt-4 border-t border-gray-100">
-                <button type="button" onClick={closeForm} className="px-4 py-2 text-gray-600 hover:bg-gray-100 rounded-lg font-medium transition-colors">
-                  Cancelar
-                </button>
+                <button type="button" onClick={closeForm} className="px-4 py-2 text-gray-600 hover:bg-gray-100 rounded-lg font-medium transition-colors">Cancelar</button>
                 <button type="submit" disabled={saveMutation.isPending} className="bg-jengibre-primary hover:bg-[#a64120] text-white px-6 py-2 rounded-lg font-medium transition-colors disabled:opacity-50">
                   {saveMutation.isPending ? 'Guardando...' : 'Guardar Factura'}
                 </button>
@@ -212,61 +196,58 @@ export default function Compras() {
         </div>
       )}
 
-      {/* Tarjetas de compras */}
-      {isLoading ? (
-        <div className="flex justify-center py-12"><div className="w-8 h-8 border-4 border-jengibre-primary border-t-transparent rounded-full animate-spin"></div></div>
-      ) : compras?.length === 0 ? (
-        <div className="bg-white border border-gray-200 rounded-2xl p-12 text-center">
-          <div className="bg-gray-50 w-16 h-16 rounded-full flex items-center justify-center mx-auto mb-4 text-gray-400">
-            <ShoppingCart size={32} />
+      {/* TABLA DE COMPRAS */}
+      <div className="bg-white border border-jengibre-border rounded-2xl overflow-hidden shadow-sm">
+        {isLoading ? (
+          <div className="flex justify-center py-12"><div className="w-8 h-8 border-4 border-jengibre-primary border-t-transparent rounded-full animate-spin"></div></div>
+        ) : compras?.length === 0 ? (
+          <div className="p-12 text-center">
+            <div className="bg-gray-50 w-16 h-16 rounded-full flex items-center justify-center mx-auto mb-4 text-gray-400"><ShoppingCart size={32} /></div>
+            <h3 className="text-xl font-bold text-gray-800 mb-2">No hay facturas cargadas</h3>
+            <button onClick={() => setIsFormOpen(true)} className="text-jengibre-primary font-bold hover:underline">+ Cargar factura</button>
           </div>
-          <h3 className="text-xl font-bold text-gray-800 mb-2">No hay facturas cargadas</h3>
-          <p className="text-gray-500 mb-6">Empezá a cargar las facturas de tus gastos para llevar el control del IVA.</p>
-          <button onClick={() => setIsFormOpen(true)} className="text-jengibre-primary font-bold hover:underline">
-            + Cargar factura
-          </button>
-        </div>
-      ) : (
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-          {compras?.map((compra) => {
-            const dateFormatted = new Date(compra.fecha).toLocaleDateString('es-AR', { day: '2-digit', month: 'short', year: 'numeric' });
-            
-            return (
-              <div key={compra.id} className="bg-white border border-jengibre-border rounded-2xl p-5 shadow-sm hover:shadow-md transition-all group flex flex-col">
-                <div className="flex justify-between items-start mb-3">
-                  <div className="flex items-center gap-2 text-sm text-gray-500 font-medium">
-                    <Receipt size={16} /> {dateFormatted}
-                  </div>
-                  <div className="flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
-                    <button onClick={() => openEdit(compra)} className="p-1 text-gray-400 hover:text-blue-600 rounded-lg">
-                      <Edit2 size={16} />
-                    </button>
-                    <button onClick={() => { if(confirm('¿Eliminar factura?')) deleteMutation.mutate(compra.id); }} className="p-1 text-gray-400 hover:text-red-600 rounded-lg">
-                      <Trash2 size={16} />
-                    </button>
-                  </div>
-                </div>
-                
-                <div>
-                  <h3 className="font-bold text-gray-900 text-lg leading-tight">{compra.proveedor}</h3>
-                  <p className="text-gray-600 text-sm mt-1">{compra.concepto}</p>
-                </div>
-                
-                <div className="mt-auto pt-4 space-y-2">
-                  <div className="flex justify-between items-center text-sm">
-                    <span className="text-gray-500">Monto Total</span>
-                    <span className="font-mono font-bold text-gray-900">{formatARS(compra.monto_total)}</span>
-                  </div>
-                  <div className="flex justify-between items-center text-sm bg-blue-50 p-2 rounded-lg">
-                    <span className="text-blue-800 font-medium">IVA Crédito</span>
-                    <span className="font-mono font-bold text-blue-800">{formatARS(compra.iva_credito || 0)}</span>
-                  </div>
-                </div>
-              </div>
-            );
-          })}
-        </div>
-      )}
+        ) : (
+          <div className="overflow-x-auto">
+            <table className="w-full text-left border-collapse whitespace-nowrap">
+              <thead>
+                <tr className="bg-jengibre-cream/50 text-jengibre-dark text-sm border-b border-jengibre-border">
+                  <th className="px-4 py-3 font-bold">Fecha</th>
+                  <th className="px-4 py-3 font-bold">Nº Comprobante</th>
+                  <th className="px-4 py-3 font-bold">Proveedor</th>
+                  <th className="px-4 py-3 font-bold">Concepto</th>
+                  <th className="px-4 py-3 font-bold text-right">Monto Total</th>
+                  <th className="px-4 py-3 font-bold text-right text-blue-800">IVA (Crédito)</th>
+                  <th className="px-4 py-3 font-bold text-center">Acciones</th>
+                </tr>
+              </thead>
+              <tbody>
+                {compras?.map((compra) => {
+                  const dateFormatted = new Date(compra.fecha).toLocaleDateString('es-AR', { day: '2-digit', month: 'short', year: 'numeric' });
+                  
+                  return (
+                    <tr key={compra.id} className="border-b border-gray-100 hover:bg-gray-50 transition-colors group">
+                      <td className="px-4 py-3 text-sm text-gray-600">{dateFormatted}</td>
+                      <td className="px-4 py-3 text-sm text-gray-500 font-mono">{compra.comprobante_nro || '-'}</td>
+                      <td className="px-4 py-3 font-bold text-gray-900">{compra.proveedor}</td>
+                      <td className="px-4 py-3 text-sm text-gray-600">{compra.concepto}</td>
+                      <td className="px-4 py-3 text-right font-mono font-bold text-gray-900">{formatARS(compra.monto_total)}</td>
+                      <td className="px-4 py-3 text-right font-mono font-bold text-blue-800 bg-blue-50/30">
+                        {compra.iva_credito > 0 ? formatARS(compra.iva_credito) : '-'}
+                      </td>
+                      <td className="px-4 py-3">
+                        <div className="flex items-center justify-center gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
+                          <button onClick={() => openEdit(compra)} className="p-1.5 text-gray-400 hover:text-blue-600 hover:bg-blue-50 rounded-lg"><Edit2 size={16} /></button>
+                          <button onClick={() => { if(confirm('¿Eliminar factura?')) deleteMutation.mutate(compra.id); }} className="p-1.5 text-gray-400 hover:text-red-600 hover:bg-red-50 rounded-lg"><Trash2 size={16} /></button>
+                        </div>
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </div>
     </div>
   );
 }

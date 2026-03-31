@@ -2,7 +2,7 @@ import React, { useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { supabase } from '@/integrations/supabase/client';
 import { TipAlert } from '@/components/TipAlert';
-import { Plus, Edit2, Trash2, Building, Calendar, Mail, FileText, User } from 'lucide-react';
+import { Plus, Edit2, Trash2, Building, AlertTriangle } from 'lucide-react';
 import { formatARS, formatUSD } from '@/lib/utils';
 import { showSuccess, showError } from '@/utils/toast';
 
@@ -41,7 +41,6 @@ export default function Clientes() {
 
   const saveMutation = useMutation({
     mutationFn: async (clientData: any) => {
-      // Limpiamos los datos para evitar enviar strings vacíos a campos numéricos/fechas
       const payload = {
         ...clientData,
         dia_facturacion: clientData.dia_facturacion ? Number(clientData.dia_facturacion) : null,
@@ -107,7 +106,6 @@ export default function Clientes() {
     setFormData(defaultForm);
   };
 
-  // Función auxiliar para calcular si el contrato vence pronto (menos de 30 días)
   const isVenciendo = (fechaFin: string) => {
     if (!fechaFin) return false;
     const fin = new Date(fechaFin);
@@ -132,12 +130,10 @@ export default function Clientes() {
         </button>
       </header>
 
-      <TipAlert id="clientes_contratos" title="💡 Tip de uso: Alertas de Facturación y Contratos">
-        Al completar la fecha de fin de contrato y el día de facturación, el sistema revisará todos los días esta información. 
-        En el futuro, esto enviará correos automáticos para avisarte a quién facturarle hoy y qué contratos hay que renovar este mes.
+      <TipAlert id="clientes_tabla" title="💡 Vista de Tabla">
+        Los clientes ahora se muestran en formato tabla para facilitar la lectura. Si un contrato está por vencer, verás un ícono de alerta en la columna de Vencimiento.
       </TipAlert>
 
-      {/* Formulario (Modal Scrollable) */}
       {isFormOpen && (
         <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4">
           <div className="bg-white rounded-2xl w-full max-w-2xl p-6 shadow-xl animate-in zoom-in-95 max-h-[90vh] overflow-y-auto">
@@ -145,8 +141,7 @@ export default function Clientes() {
               {editingId ? 'Editar Cliente' : 'Nuevo Cliente'}
             </h2>
             <form onSubmit={handleSubmit} className="space-y-6">
-              
-              {/* SECCIÓN: DATOS GENERALES */}
+              {/* DATOS COMERCIALES */}
               <div className="bg-gray-50 p-4 rounded-xl border border-gray-100 space-y-4">
                 <h3 className="font-bold text-gray-800 text-sm uppercase tracking-wider">Datos Comerciales</h3>
                 <div>
@@ -157,7 +152,6 @@ export default function Clientes() {
                     value={formData.nombre} onChange={e => setFormData({...formData, nombre: e.target.value})}
                   />
                 </div>
-                
                 <div className="grid grid-cols-2 gap-4">
                   <div>
                     <label className="block text-sm font-medium text-gray-700 mb-1">Abono ARS</label>
@@ -176,7 +170,7 @@ export default function Clientes() {
                 </div>
               </div>
 
-              {/* SECCIÓN: CONTRATO Y FACTURACIÓN */}
+              {/* CONTRATO Y FACTURACIÓN */}
               <div className="bg-gray-50 p-4 rounded-xl border border-gray-100 space-y-4">
                 <h3 className="font-bold text-gray-800 text-sm uppercase tracking-wider">Contrato y Facturación</h3>
                 <div className="grid grid-cols-2 gap-4">
@@ -195,7 +189,6 @@ export default function Clientes() {
                     />
                   </div>
                 </div>
-
                 <div className="grid grid-cols-2 gap-4">
                   <div>
                     <label className="block text-sm font-medium text-gray-700 mb-1">Día del mes para facturar</label>
@@ -203,7 +196,6 @@ export default function Clientes() {
                       type="number" min="1" max="31"
                       className="w-full border border-gray-300 rounded-lg p-2.5 focus:ring-2 focus:ring-jengibre-primary outline-none bg-white" 
                       value={formData.dia_facturacion} onChange={e => setFormData({...formData, dia_facturacion: e.target.value})}
-                      placeholder="Ej: 5"
                     />
                   </div>
                   <div>
@@ -217,19 +209,17 @@ export default function Clientes() {
                     </select>
                   </div>
                 </div>
-
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">Link al Documento / Contrato (Drive, Notion, etc)</label>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">Link al Documento / Contrato</label>
                   <input 
                     type="url"
                     className="w-full border border-gray-300 rounded-lg p-2.5 focus:ring-2 focus:ring-jengibre-primary outline-none bg-white" 
                     value={formData.link_contrato} onChange={e => setFormData({...formData, link_contrato: e.target.value})}
-                    placeholder="https://..."
                   />
                 </div>
               </div>
 
-              {/* SECCIÓN: CONTACTO */}
+              {/* CONTACTO */}
               <div className="bg-gray-50 p-4 rounded-xl border border-gray-100 space-y-4">
                 <h3 className="font-bold text-gray-800 text-sm uppercase tracking-wider">Persona de Contacto</h3>
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
@@ -238,25 +228,21 @@ export default function Clientes() {
                     <input 
                       className="w-full border border-gray-300 rounded-lg p-2.5 focus:ring-2 focus:ring-jengibre-primary outline-none bg-white" 
                       value={formData.contacto_nombre} onChange={e => setFormData({...formData, contacto_nombre: e.target.value})}
-                      placeholder="Ej: María Gomez"
                     />
                   </div>
                   <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1">Email (Para envío de facturas)</label>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">Email</label>
                     <input 
                       type="email"
                       className="w-full border border-gray-300 rounded-lg p-2.5 focus:ring-2 focus:ring-jengibre-primary outline-none bg-white" 
                       value={formData.contacto_email} onChange={e => setFormData({...formData, contacto_email: e.target.value})}
-                      placeholder="maria@empresa.com"
                     />
                   </div>
                 </div>
               </div>
 
               <div className="flex justify-end gap-3 pt-4 border-t border-gray-100">
-                <button type="button" onClick={closeForm} className="px-4 py-2 text-gray-600 hover:bg-gray-100 rounded-lg font-medium transition-colors">
-                  Cancelar
-                </button>
+                <button type="button" onClick={closeForm} className="px-4 py-2 text-gray-600 hover:bg-gray-100 rounded-lg font-medium transition-colors">Cancelar</button>
                 <button type="submit" disabled={saveMutation.isPending} className="bg-jengibre-primary hover:bg-[#a64120] text-white px-6 py-2 rounded-lg font-medium transition-colors disabled:opacity-50">
                   {saveMutation.isPending ? 'Guardando...' : 'Guardar Cliente'}
                 </button>
@@ -266,113 +252,87 @@ export default function Clientes() {
         </div>
       )}
 
-      {/* Lista de clientes */}
-      {isLoading ? (
-        <div className="flex justify-center py-12"><div className="w-8 h-8 border-4 border-jengibre-primary border-t-transparent rounded-full animate-spin"></div></div>
-      ) : clientes?.length === 0 ? (
-        <div className="bg-white border border-gray-200 rounded-2xl p-12 text-center">
-          <div className="bg-gray-50 w-16 h-16 rounded-full flex items-center justify-center mx-auto mb-4 text-gray-400">
-            <Building size={32} />
+      {/* TABLA DE CLIENTES */}
+      <div className="bg-white border border-jengibre-border rounded-2xl overflow-hidden shadow-sm">
+        {isLoading ? (
+          <div className="flex justify-center py-12"><div className="w-8 h-8 border-4 border-jengibre-primary border-t-transparent rounded-full animate-spin"></div></div>
+        ) : clientes?.length === 0 ? (
+          <div className="p-12 text-center">
+            <div className="bg-gray-50 w-16 h-16 rounded-full flex items-center justify-center mx-auto mb-4 text-gray-400"><Building size={32} /></div>
+            <h3 className="text-xl font-bold text-gray-800 mb-2">No hay clientes cargados</h3>
+            <button onClick={() => setIsFormOpen(true)} className="text-jengibre-primary font-bold hover:underline">+ Agregar cliente</button>
           </div>
-          <h3 className="text-xl font-bold text-gray-800 mb-2">No hay clientes cargados</h3>
-          <p className="text-gray-500 mb-6">Empezá agregando tu primer cliente para armar las proyecciones.</p>
-          <button onClick={() => setIsFormOpen(true)} className="text-jengibre-primary font-bold hover:underline">
-            + Agregar cliente
-          </button>
-        </div>
-      ) : (
-        <div className="grid grid-cols-1 lg:grid-cols-2 xl:grid-cols-3 gap-5">
-          {clientes?.map((cliente) => {
-            const venciendo = isVenciendo(cliente.fecha_fin);
-            
-            return (
-              <div key={cliente.id} className="bg-white border border-jengibre-border rounded-2xl p-5 shadow-sm hover:shadow-md transition-all group flex flex-col relative overflow-hidden">
-                {/* Indicador de vencimiento */}
-                {venciendo && (
-                  <div className="absolute top-0 left-0 w-full bg-jengibre-amber text-amber-900 text-xs font-bold py-1 text-center">
-                    ⚠️ CONTRATO VENCE PRONTO
-                  </div>
-                )}
-                
-                <div className={`flex justify-between items-start mb-4 ${venciendo ? 'mt-4' : ''}`}>
-                  <div className="flex items-center gap-3">
-                    <div className="bg-jengibre-cream text-jengibre-primary w-12 h-12 rounded-full flex items-center justify-center font-bold font-display text-xl">
-                      {cliente.nombre.charAt(0).toUpperCase()}
-                    </div>
-                    <div>
-                      <h3 className="font-bold text-gray-900 text-lg leading-tight">{cliente.nombre}</h3>
-                      <span className={`text-[10px] px-2 py-0.5 rounded-full mt-1 inline-block font-bold uppercase ${cliente.estado === 'activo' ? 'bg-green-100 text-green-700' : 'bg-gray-100 text-gray-600'}`}>
-                        {cliente.estado === 'activo' ? 'Activo' : 'Inactivo'}
-                      </span>
-                    </div>
-                  </div>
-                  <div className="flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
-                    <button onClick={() => openEdit(cliente)} className="p-1.5 text-gray-400 hover:text-blue-600 hover:bg-blue-50 rounded-lg transition-colors">
-                      <Edit2 size={16} />
-                    </button>
-                    <button onClick={() => { if(confirm('¿Eliminar este cliente?')) deleteMutation.mutate(cliente.id); }} className="p-1.5 text-gray-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition-colors">
-                      <Trash2 size={16} />
-                    </button>
-                  </div>
-                </div>
-                
-                <div className="grid grid-cols-2 gap-4 my-4 bg-gray-50 p-3 rounded-xl border border-gray-100">
-                  {cliente.monto_ars > 0 && (
-                    <div>
-                      <p className="text-xs text-gray-500 font-medium">Abono ARS</p>
-                      <p className="font-mono font-bold text-gray-900">{formatARS(cliente.monto_ars)}</p>
-                    </div>
-                  )}
-                  {cliente.monto_usd > 0 && (
-                    <div>
-                      <p className="text-xs text-gray-500 font-medium">Abono USD</p>
-                      <p className="font-mono font-bold text-gray-900">{formatUSD(cliente.monto_usd)}</p>
-                    </div>
-                  )}
-                </div>
-
-                <div className="mt-auto space-y-2 text-sm">
-                  {/* Contacto */}
-                  {(cliente.contacto_nombre || cliente.contacto_email) && (
-                    <div className="flex items-start gap-2 text-gray-600">
-                      <User size={16} className="shrink-0 mt-0.5" />
-                      <div>
-                        <p className="font-medium text-gray-900">{cliente.contacto_nombre || 'Sin nombre'}</p>
-                        {cliente.contacto_email && <p className="text-xs">{cliente.contacto_email}</p>}
-                      </div>
-                    </div>
-                  )}
+        ) : (
+          <div className="overflow-x-auto">
+            <table className="w-full text-left border-collapse whitespace-nowrap">
+              <thead>
+                <tr className="bg-jengibre-cream/50 text-jengibre-dark text-sm border-b border-jengibre-border">
+                  <th className="px-4 py-3 font-bold">Empresa / Cliente</th>
+                  <th className="px-4 py-3 font-bold text-right">Abono ARS</th>
+                  <th className="px-4 py-3 font-bold text-right">Abono USD</th>
+                  <th className="px-4 py-3 font-bold text-center">Día Fact.</th>
+                  <th className="px-4 py-3 font-bold">Vencimiento</th>
+                  <th className="px-4 py-3 font-bold">Contacto</th>
+                  <th className="px-4 py-3 font-bold text-center">Estado</th>
+                  <th className="px-4 py-3 font-bold text-center">Acciones</th>
+                </tr>
+              </thead>
+              <tbody>
+                {clientes?.map((cliente) => {
+                  const venciendo = isVenciendo(cliente.fecha_fin);
                   
-                  {/* Facturación */}
-                  {cliente.dia_facturacion && (
-                    <div className="flex items-center gap-2 text-gray-600">
-                      <Calendar size={16} className="shrink-0" />
-                      <p>Facturar el día <strong>{cliente.dia_facturacion}</strong></p>
-                    </div>
-                  )}
-
-                  {/* Contrato */}
-                  {(cliente.fecha_fin || cliente.link_contrato) && (
-                    <div className="flex items-center justify-between gap-2 text-gray-600 pt-2 border-t border-gray-100 mt-2">
-                      <div className="flex items-center gap-2">
-                        <FileText size={16} className="shrink-0" />
-                        <p className={venciendo ? 'text-jengibre-amber font-bold' : ''}>
-                          Vence: {cliente.fecha_fin ? new Date(cliente.fecha_fin).toLocaleDateString('es-AR') : 'Sin fecha'}
-                        </p>
-                      </div>
-                      {cliente.link_contrato && (
-                        <a href={cliente.link_contrato} target="_blank" rel="noopener noreferrer" className="text-jengibre-primary hover:underline text-xs font-bold">
-                          Ver Doc
-                        </a>
-                      )}
-                    </div>
-                  )}
-                </div>
-              </div>
-            );
-          })}
-        </div>
-      )}
+                  return (
+                    <tr key={cliente.id} className="border-b border-gray-100 hover:bg-gray-50 transition-colors group">
+                      <td className="px-4 py-3">
+                        <div className="font-bold text-gray-900">{cliente.nombre}</div>
+                        {cliente.link_contrato && (
+                          <a href={cliente.link_contrato} target="_blank" rel="noopener noreferrer" className="text-[10px] text-blue-600 hover:underline">Ver Contrato</a>
+                        )}
+                      </td>
+                      <td className="px-4 py-3 text-right font-mono font-medium text-gray-700">
+                        {cliente.monto_ars > 0 ? formatARS(cliente.monto_ars) : '-'}
+                      </td>
+                      <td className="px-4 py-3 text-right font-mono font-medium text-gray-700">
+                        {cliente.monto_usd > 0 ? formatUSD(cliente.monto_usd) : '-'}
+                      </td>
+                      <td className="px-4 py-3 text-center">
+                        {cliente.dia_facturacion ? <span className="bg-gray-100 text-gray-700 px-2 py-1 rounded font-bold text-xs">{cliente.dia_facturacion}</span> : '-'}
+                      </td>
+                      <td className="px-4 py-3 text-sm">
+                        {cliente.fecha_fin ? (
+                          <div className={`flex items-center gap-1.5 ${venciendo ? 'text-jengibre-amber font-bold' : 'text-gray-600'}`}>
+                            {new Date(cliente.fecha_fin).toLocaleDateString('es-AR')}
+                            {venciendo && <AlertTriangle size={14} />}
+                          </div>
+                        ) : <span className="text-gray-400">-</span>}
+                      </td>
+                      <td className="px-4 py-3 text-sm text-gray-600">
+                        {cliente.contacto_nombre || cliente.contacto_email ? (
+                          <div>
+                            <div className="font-medium text-gray-900">{cliente.contacto_nombre}</div>
+                            <div className="text-xs">{cliente.contacto_email}</div>
+                          </div>
+                        ) : '-'}
+                      </td>
+                      <td className="px-4 py-3 text-center">
+                        <span className={`text-[10px] px-2 py-1 rounded-full font-bold uppercase ${cliente.estado === 'activo' ? 'bg-green-100 text-green-700' : 'bg-gray-100 text-gray-600'}`}>
+                          {cliente.estado === 'activo' ? 'Activo' : 'Inactivo'}
+                        </span>
+                      </td>
+                      <td className="px-4 py-3">
+                        <div className="flex items-center justify-center gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
+                          <button onClick={() => openEdit(cliente)} className="p-1.5 text-gray-400 hover:text-blue-600 hover:bg-blue-50 rounded-lg"><Edit2 size={16} /></button>
+                          <button onClick={() => { if(confirm('¿Eliminar este cliente?')) deleteMutation.mutate(cliente.id); }} className="p-1.5 text-gray-400 hover:text-red-600 hover:bg-red-50 rounded-lg"><Trash2 size={16} /></button>
+                        </div>
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </div>
     </div>
   );
 }
