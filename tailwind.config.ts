@@ -18,7 +18,23 @@ export default {
       },
     },
     extend: {
+      fontFamily: {
+        display: ['"Playfair Display"', 'serif'],
+        sans: ['"DM Sans"', 'sans-serif'],
+        mono: ['"DM Mono"', 'monospace'],
+      },
       colors: {
+        jengibre: {
+          primary: "#C8522A",
+          cream: "#F2E8D9",
+          card: "#E8D5C0",
+          dark: "#2C2C2C",
+          white: "#FFFFFF",
+          green: "#5A8A6B",
+          amber: "#D4A843",
+          red: "#C0392B",
+          border: "#D4B896",
+        },
         border: "hsl(var(--border))",
         input: "hsl(var(--input))",
         ring: "hsl(var(--ring))",
