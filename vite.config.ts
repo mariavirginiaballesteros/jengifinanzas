@@ -13,5 +13,7 @@ export default defineConfig(() => ({
     alias: {
       "@": path.resolve(__dirname, "./src"),
     },
+    // Esto obliga a todas las librerías a usar la misma versión de React
+    dedupe: ['react', 'react-dom'],
   },
 }));
