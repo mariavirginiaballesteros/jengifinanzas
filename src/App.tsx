@@ -7,11 +7,13 @@ import { AuthProvider } from "./contexts/AuthContext";
 import Layout from "./components/Layout";
 import Login from "./pages/Login";
 import Index from "./pages/Index";
+import Clientes from "./pages/Clientes";
+import Equipo from "./pages/Equipo";
 import NotFound from "./pages/NotFound";
 
 const queryClient = new QueryClient();
 
-// Componentes temporales (placeholders) para las demás rutas
+// Componentes temporales (placeholders) para las demás rutas que aún no construimos
 const Placeholder = ({ title }: { title: string }) => (
   <div className="animate-in fade-in flex flex-col items-center justify-center h-64 text-center">
     <h2 className="text-3xl font-display font-bold text-jengibre-primary mb-2">{title}</h2>
@@ -29,11 +31,10 @@ const App = () => (
           <Routes>
             <Route path="/login" element={<Login />} />
             
-            {/* Rutas protegidas dentro del Layout */}
             <Route element={<Layout />}>
               <Route path="/" element={<Index />} />
-              <Route path="/clientes" element={<Placeholder title="Gestión de Clientes" />} />
-              <Route path="/equipo" element={<Placeholder title="Gestión de Equipo" />} />
+              <Route path="/clientes" element={<Clientes />} />
+              <Route path="/equipo" element={<Equipo />} />
               <Route path="/caja" element={<Placeholder title="Libro de Caja" />} />
               <Route path="/recuperos" element={<Placeholder title="Recuperos Pendientes" />} />
               <Route path="/compras" element={<Placeholder title="Compras y Crédito Fiscal" />} />
