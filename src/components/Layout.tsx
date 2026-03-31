@@ -4,7 +4,7 @@ import { useAuth } from '@/contexts/AuthContext';
 import { 
   Home, Briefcase, Users, DollarSign, RefreshCw, 
   ShoppingCart, TrendingUp, Heart, MessageSquare, 
-  Settings, LogOut, Menu, X
+  Settings, LogOut, Menu, X, FileText
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 
@@ -18,6 +18,7 @@ export default function Layout() {
   const navItems = [
     { to: "/", icon: <Home size={20} />, label: "Dashboard" },
     { to: "/clientes", icon: <Briefcase size={20} />, label: "Clientes" },
+    { to: "/facturacion", icon: <FileText size={20} />, label: "Facturación" },
     { to: "/equipo", icon: <Users size={20} />, label: "Equipo" },
     { to: "/caja", icon: <DollarSign size={20} />, label: "Caja" },
     { to: "/recuperos", icon: <RefreshCw size={20} />, label: "Recuperos" },
@@ -98,8 +99,8 @@ export default function Layout() {
         <NavLink to="/" className={({isActive}) => cn("p-3 rounded-full transition-colors", isActive ? "text-jengibre-primary bg-gray-800" : "text-gray-400")}>
           <Home size={24} />
         </NavLink>
-        <NavLink to="/caja" className={({isActive}) => cn("p-3 rounded-full transition-colors", isActive ? "text-jengibre-primary bg-gray-800" : "text-gray-400")}>
-          <DollarSign size={24} />
+        <NavLink to="/facturacion" className={({isActive}) => cn("p-3 rounded-full transition-colors", isActive ? "text-jengibre-primary bg-gray-800" : "text-gray-400")}>
+          <FileText size={24} />
         </NavLink>
         <NavLink to="/clientes" className={({isActive}) => cn("p-3 rounded-full transition-colors", isActive ? "text-jengibre-primary bg-gray-800" : "text-gray-400")}>
           <Briefcase size={24} />
