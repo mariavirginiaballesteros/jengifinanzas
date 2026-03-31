@@ -3,10 +3,21 @@ import { Toaster as Sonner } from "@/components/ui/sonner";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { BrowserRouter, Routes, Route } from "react-router-dom";
+import { AuthProvider } from "./contexts/AuthContext";
+import Layout from "./components/Layout";
+import Login from "./pages/Login";
 import Index from "./pages/Index";
 import NotFound from "./pages/NotFound";
 
 const queryClient = new QueryClient();
+
+// Componentes temporales (placeholders) para las demás rutas
+const Placeholder = ({ title }: { title: string }) => (
+  <div className="animate-in fade-in flex flex-col items-center justify-center h-64 text-center">
+    <h2 className="text-3xl font-display font-bold text-jengibre-primary mb-2">{title}</h2>
+    <p className="text-gray-500 font-sans">Módulo en construcción 🚀</p>
+  </div>
+);
 
 const App = () => (
   <QueryClientProvider client={queryClient}>
@@ -14,11 +25,27 @@ const App = () => (
       <Toaster />
       <Sonner />
       <BrowserRouter>
-        <Routes>
-          <Route path="/" element={<Index />} />
-          {/* ADD ALL CUSTOM ROUTES ABOVE THE CATCH-ALL "*" ROUTE */}
-          <Route path="*" element={<NotFound />} />
-        </Routes>
+        <AuthProvider>
+          <Routes>
+            <Route path="/login" element={<Login />} />
+            
+            {/* Rutas protegidas dentro del Layout */}
+            <Route element={<Layout />}>
+              <Route path="/" element={<Index />} />
+              <Route path="/clientes" element={<Placeholder title="Gestión de Clientes" />} />
+              <Route path="/equipo" element={<Placeholder title="Gestión de Equipo" />} />
+              <Route path="/caja" element={<Placeholder title="Libro de Caja" />} />
+              <Route path="/recuperos" element={<Placeholder title="Recuperos Pendientes" />} />
+              <Route path="/compras" element={<Placeholder title="Compras y Crédito Fiscal" />} />
+              <Route path="/proyeccion" element={<Placeholder title="Proyección 12 Meses" />} />
+              <Route path="/salud" element={<Placeholder title="Salud Financiera" />} />
+              <Route path="/contadora" element={<Placeholder title="Módulo Contadora" />} />
+              <Route path="/configuracion" element={<Placeholder title="Configuración" />} />
+            </Route>
+            
+            <Route path="*" element={<NotFound />} />
+          </Routes>
+        </AuthProvider>
       </BrowserRouter>
     </TooltipProvider>
   </QueryClientProvider>
