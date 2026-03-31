@@ -14,6 +14,10 @@ export default function Clientes() {
   const defaultForm = {
     nombre: '', cuit: '', monto_ars: 0, monto_usd: 0,
     estado: 'activo', fecha_inicio: '', fecha_fin: '', link_contrato: '',
+    
+    // Datos de facturación y contacto
+    contacto_nombre: '', contacto_email: '', quien_factura: '', datos_facturacion: '', seguimiento_pagos: '', dia_facturacion: '', notas: '',
+    
     // Herramienta Generador
     generar_cronograma: false, cantidad_cuotas: '', cuota_monto: '', cuota_mes_inicio: new Date().toISOString().split('T')[0].slice(0, 7)
   };
@@ -33,9 +37,11 @@ export default function Clientes() {
       // Extraemos campos que NO van a la tabla clientes
       const { generar_cronograma, cantidad_cuotas, cuota_monto, cuota_mes_inicio, ...payload } = clientData;
       
-      // PREVENIR ERROR DE FECHAS VACÍAS
+      // PREVENIR ERROR DE FECHAS VACÍAS Y NÚMEROS
       if (!payload.fecha_inicio) payload.fecha_inicio = null;
       if (!payload.fecha_fin) payload.fecha_fin = null;
+      if (!payload.dia_facturacion) payload.dia_facturacion = null;
+      else payload.dia_facturacion = Number(payload.dia_facturacion);
       
       let clientId = editingId;
 
@@ -67,7 +73,11 @@ export default function Clientes() {
             mes: d.toISOString().split('T')[0],
             monto_base: monto,
             monto_final: monto,
-            estado: 'por_enviar'
+            estado: 'por_enviar',
+            // También podemos arrastrar la info del cliente acá para que el generador la tenga por defecto
+            responsable_afip: payload.quien_factura || null,
+            cuit_responsable: payload.cuit || null,
+            descripcion: payload.datos_facturacion || null
           });
         }
         await supabase.from('facturacion').insert(rows);
@@ -75,7 +85,7 @@ export default function Clientes() {
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['clientes'] });
-      showSuccess(editingId ? 'Cliente guardado' : 'Cliente creado y cronograma generado');
+      showSuccess(editingId ? 'Cliente guardado' : 'Cliente creado exitosamente');
       closeForm();
     },
     onError: (err: any) => showError(err.message)
@@ -101,6 +111,15 @@ export default function Clientes() {
       estado: cliente.estado || 'activo',
       fecha_inicio: cliente.fecha_inicio || '', fecha_fin: cliente.fecha_fin || '',
       link_contrato: cliente.link_contrato || '',
+      
+      contacto_nombre: cliente.contacto_nombre || '',
+      contacto_email: cliente.contacto_email || '',
+      quien_factura: cliente.quien_factura || '',
+      datos_facturacion: cliente.datos_facturacion || '',
+      seguimiento_pagos: cliente.seguimiento_pagos || '',
+      dia_facturacion: cliente.dia_facturacion || '',
+      notas: cliente.notas || '',
+      
       // Reseteamos el generador para que no se dispare sin querer al editar
       generar_cronograma: false, cantidad_cuotas: '', cuota_monto: cliente.monto_ars || '', 
       cuota_mes_inicio: new Date().toISOString().split('T')[0].slice(0, 7)
@@ -138,37 +157,82 @@ export default function Clientes() {
             <h2 className="text-2xl font-display font-bold mb-6">{editingId ? 'Editar Cliente' : 'Nuevo Cliente'}</h2>
             <form onSubmit={handleSubmit} className="space-y-6">
               
+              {/* DATOS PRINCIPALES */}
               <div className="bg-gray-50 p-4 rounded-xl border border-gray-100 space-y-4">
                 <h3 className="font-bold text-gray-800 text-sm uppercase tracking-wider">Datos Principales</h3>
                 <div className="grid grid-cols-2 gap-4">
                   <div>
                     <label className="block text-sm font-medium text-gray-700 mb-1">Nombre / Proyecto</label>
-                    <input required className="w-full border border-gray-300 rounded-lg p-2.5 outline-none focus:ring-2 focus:ring-jengibre-primary" value={formData.nombre} onChange={e => setFormData({...formData, nombre: e.target.value})} />
+                    <input required className="w-full border border-gray-300 rounded-lg p-2.5 outline-none focus:ring-2 focus:ring-jengibre-primary bg-white" value={formData.nombre} onChange={e => setFormData({...formData, nombre: e.target.value})} />
                   </div>
                   <div>
                     <label className="block text-sm font-medium text-gray-700 mb-1">CUIT Empresa</label>
-                    <input className="w-full border border-gray-300 rounded-lg p-2.5 outline-none focus:ring-2 focus:ring-jengibre-primary" value={formData.cuit || ''} onChange={e => setFormData({...formData, cuit: e.target.value})} placeholder="30-..." />
+                    <input className="w-full border border-gray-300 rounded-lg p-2.5 outline-none focus:ring-2 focus:ring-jengibre-primary bg-white" value={formData.cuit || ''} onChange={e => setFormData({...formData, cuit: e.target.value})} placeholder="30-..." />
                   </div>
                 </div>
-                <div className="grid grid-cols-2 gap-4">
+                <div className="grid grid-cols-3 gap-4">
                   <div>
                     <label className="block text-sm font-medium text-gray-700 mb-1">Abono Base ARS</label>
-                    <input type="number" className="w-full border border-gray-300 rounded-lg p-2.5 outline-none focus:ring-2 focus:ring-jengibre-primary" value={formData.monto_ars || ''} onChange={e => setFormData({...formData, monto_ars: Number(e.target.value)})} />
+                    <input type="number" className="w-full border border-gray-300 rounded-lg p-2.5 outline-none focus:ring-2 focus:ring-jengibre-primary bg-white" value={formData.monto_ars || ''} onChange={e => setFormData({...formData, monto_ars: Number(e.target.value)})} />
                   </div>
                   <div>
                     <label className="block text-sm font-medium text-gray-700 mb-1">Abono USD</label>
-                    <input type="number" className="w-full border border-gray-300 rounded-lg p-2.5 outline-none focus:ring-2 focus:ring-jengibre-primary" value={formData.monto_usd || ''} onChange={e => setFormData({...formData, monto_usd: Number(e.target.value)})} />
+                    <input type="number" className="w-full border border-gray-300 rounded-lg p-2.5 outline-none focus:ring-2 focus:ring-jengibre-primary bg-white" value={formData.monto_usd || ''} onChange={e => setFormData({...formData, monto_usd: Number(e.target.value)})} />
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">Estado</label>
+                    <select className="w-full border border-gray-300 rounded-lg p-2.5 outline-none focus:ring-2 focus:ring-jengibre-primary bg-white" value={formData.estado} onChange={e => setFormData({...formData, estado: e.target.value})}>
+                      <option value="activo">Activo</option>
+                      <option value="inactivo">Inactivo</option>
+                    </select>
                   </div>
                 </div>
+              </div>
+
+              {/* FACTURACIÓN Y CONTACTO */}
+              <div className="bg-jengibre-cream/30 p-4 rounded-xl border border-jengibre-border space-y-4">
+                <h3 className="font-bold text-gray-800 text-sm uppercase tracking-wider">Facturación y Contacto</h3>
                 <div className="grid grid-cols-2 gap-4">
                   <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1">Vencimiento Contrato</label>
-                    <input type="date" className="w-full border border-gray-300 rounded-lg p-2.5 bg-white outline-none focus:ring-2 focus:ring-jengibre-primary" value={formData.fecha_fin} onChange={e => setFormData({...formData, fecha_fin: e.target.value})} />
+                    <label className="block text-sm font-medium text-gray-700 mb-1">Responsable Facturación (Nosotros)</label>
+                    <input className="w-full border border-gray-300 rounded-lg p-2.5 outline-none focus:ring-2 focus:ring-jengibre-primary bg-white" value={formData.quien_factura} onChange={e => setFormData({...formData, quien_factura: e.target.value})} placeholder="Ej: Jengibre S.R.L o Juan Pérez" />
                   </div>
                   <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1">Link al Contrato</label>
-                    <input type="url" className="w-full border border-gray-300 rounded-lg p-2.5 bg-white outline-none focus:ring-2 focus:ring-jengibre-primary" value={formData.link_contrato} onChange={e => setFormData({...formData, link_contrato: e.target.value})} placeholder="https://..." />
+                    <label className="block text-sm font-medium text-gray-700 mb-1">Concepto / Descripción a facturar</label>
+                    <input className="w-full border border-gray-300 rounded-lg p-2.5 outline-none focus:ring-2 focus:ring-jengibre-primary bg-white" value={formData.datos_facturacion} onChange={e => setFormData({...formData, datos_facturacion: e.target.value})} placeholder="Ej: Honorarios por servicios de marketing" />
                   </div>
+                </div>
+                
+                <div className="grid grid-cols-3 gap-4">
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">Contacto Nombre</label>
+                    <input className="w-full border border-gray-300 rounded-lg p-2.5 outline-none focus:ring-2 focus:ring-jengibre-primary bg-white" value={formData.contacto_nombre} onChange={e => setFormData({...formData, contacto_nombre: e.target.value})} />
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">Email / Teléfono</label>
+                    <input className="w-full border border-gray-300 rounded-lg p-2.5 outline-none focus:ring-2 focus:ring-jengibre-primary bg-white" value={formData.contacto_email} onChange={e => setFormData({...formData, contacto_email: e.target.value})} />
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">Día de Facturación</label>
+                    <input type="number" min="1" max="31" className="w-full border border-gray-300 rounded-lg p-2.5 outline-none focus:ring-2 focus:ring-jengibre-primary bg-white" value={formData.dia_facturacion} onChange={e => setFormData({...formData, dia_facturacion: e.target.value})} placeholder="Ej: 5" />
+                  </div>
+                </div>
+
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">Información de Seguimiento / Notas Internas</label>
+                  <input className="w-full border border-gray-300 rounded-lg p-2.5 outline-none focus:ring-2 focus:ring-jengibre-primary bg-white" value={formData.notas} onChange={e => setFormData({...formData, notas: e.target.value})} placeholder="Ej: Depositan en cuenta Macro. Enviar factura a RRHH." />
+                </div>
+              </div>
+
+              {/* CONTRATO */}
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">Vencimiento Contrato</label>
+                  <input type="date" className="w-full border border-gray-300 rounded-lg p-2.5 bg-white outline-none focus:ring-2 focus:ring-jengibre-primary" value={formData.fecha_fin} onChange={e => setFormData({...formData, fecha_fin: e.target.value})} />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">Link al Contrato</label>
+                  <input type="url" className="w-full border border-gray-300 rounded-lg p-2.5 bg-white outline-none focus:ring-2 focus:ring-jengibre-primary" value={formData.link_contrato} onChange={e => setFormData({...formData, link_contrato: e.target.value})} placeholder="https://..." />
                 </div>
               </div>
 
@@ -195,7 +259,7 @@ export default function Clientes() {
                     </div>
                   </div>
                 )}
-                {formData.generar_cronograma && <p className="text-xs text-blue-600 mt-2 italic">Esto creará automáticamente las filas en la pestaña Facturación (Ej: 1/4, 2/4...).</p>}
+                {formData.generar_cronograma && <p className="text-xs text-blue-600 mt-2 italic">Esto creará automáticamente las filas en la pestaña Facturación usando la info de arriba.</p>}
               </div>
 
               <div className="flex justify-end gap-3 pt-4 border-t border-gray-100">
