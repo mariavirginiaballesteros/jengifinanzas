@@ -6,8 +6,6 @@ import { Plus, Edit2, Trash2, ArrowUpRight, ArrowDownRight, Wallet } from 'lucid
 import { formatARS } from '@/lib/utils';
 import { showSuccess, showError } from '@/utils/toast';
 
-const CUENTAS = ['Macro', 'IVA', 'MP Mauro', 'MP Fondo', 'Efectivo'];
-
 export default function Caja() {
   const queryClient = useQueryClient();
   const [isFormOpen, setIsFormOpen] = useState(false);
@@ -18,18 +16,37 @@ export default function Caja() {
     tipo: 'ingreso',
     concepto: '',
     monto: '',
-    cuenta: 'Macro',
+    cuenta: '',
     cliente_id: '',
     tiene_iva: false,
     notas: ''
   };
   const [formData, setFormData] = useState<any>(defaultForm);
 
-  // Traer Movimientos
+  // 1. Traer Billeteras dinámicas de configuración
+  const { data: cuentasConfig } = useQuery({
+    queryKey: ['cuentas_activas'],
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from('configuracion')
+        .select('valor')
+        .eq('clave', 'cuentas_caja')
+        .maybeSingle();
+      
+      if (error) throw error;
+      if (data?.valor) {
+        try { return JSON.parse(data.valor); } catch { return ['Macro', 'IVA', 'MP Mauro', 'MP Fondo', 'Efectivo']; }
+      }
+      return ['Macro', 'IVA', 'MP Mauro', 'MP Fondo', 'Efectivo'];
+    }
+  });
+
+  const cuentasList: string[] = cuentasConfig || ['Macro', 'IVA', 'MP Mauro', 'MP Fondo', 'Efectivo'];
+
+  // 2. Traer Movimientos
   const { data: movimientos, isLoading } = useQuery({
     queryKey: ['movimientos'],
     queryFn: async () => {
-      // Hacemos un join con clientes para mostrar el nombre
       const { data, error } = await supabase
         .from('movimientos')
         .select(`*, cliente:clientes(nombre)`)
@@ -40,7 +57,7 @@ export default function Caja() {
     }
   });
 
-  // Traer Clientes (para el selector de ingresos)
+  // 3. Traer Clientes
   const { data: clientes } = useQuery({
     queryKey: ['clientes_combo'],
     queryFn: async () => {
@@ -52,7 +69,6 @@ export default function Caja() {
 
   const saveMutation = useMutation({
     mutationFn: async (movData: any) => {
-      // Limpiar datos vacíos
       const payload = { ...movData, cliente_id: movData.cliente_id || null };
       
       if (editingId) {
@@ -86,7 +102,17 @@ export default function Caja() {
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     if (!formData.monto || formData.monto <= 0) return showError('El monto debe ser mayor a 0');
+    if (!formData.cuenta) return showError('Debes seleccionar una cuenta bancaria');
     saveMutation.mutate(formData);
+  };
+
+  const openNewForm = () => {
+    setFormData({
+      ...defaultForm,
+      cuenta: cuentasList[0] || 'Macro'
+    });
+    setEditingId(null);
+    setIsFormOpen(true);
   };
 
   const openEdit = (mov: any) => {
@@ -118,7 +144,7 @@ export default function Caja() {
           <p className="text-gray-600 mt-1">Registrá los ingresos cobrados y gastos pagados en el día a día.</p>
         </div>
         <button 
-          onClick={() => setIsFormOpen(true)}
+          onClick={openNewForm}
           className="bg-jengibre-primary hover:bg-[#a64120] text-white px-5 py-2.5 rounded-xl font-medium flex items-center gap-2 transition-all shadow-sm"
         >
           <Plus size={20} /> Nuevo Movimiento
@@ -127,7 +153,7 @@ export default function Caja() {
 
       <TipAlert id="caja_intro" title="💡 Tip de uso: Cuentas y Transferencias">
         Registrá acá la plata que <strong>realmente entró o salió</strong> de las cuentas bancarias o billeteras virtuales. 
-        Si cobraste algo que incluye IVA, marcalo con la opción "Incluye IVA" para que luego lo separemos en la proyección mensual.
+        Podés administrar la lista de billeteras disponibles desde el menú "Configuración".
       </TipAlert>
 
       {isFormOpen && (
@@ -169,8 +195,10 @@ export default function Caja() {
                   <select 
                     className="w-full border border-gray-300 rounded-lg p-2.5 focus:ring-2 focus:ring-jengibre-primary outline-none bg-white"
                     value={formData.cuenta} onChange={e => setFormData({...formData, cuenta: e.target.value})}
+                    required
                   >
-                    {CUENTAS.map(c => <option key={c} value={c}>{c}</option>)}
+                    <option value="" disabled>Seleccioná...</option>
+                    {cuentasList.map(c => <option key={c} value={c}>{c}</option>)}
                   </select>
                 </div>
               </div>

@@ -14,11 +14,11 @@ import Caja from "./pages/Caja";
 import Compras from "./pages/Compras";
 import Proyeccion from "./pages/Proyeccion";
 import SaludFinanciera from "./pages/SaludFinanciera";
+import Configuracion from "./pages/Configuracion";
 import NotFound from "./pages/NotFound";
 
 const queryClient = new QueryClient();
 
-// Componentes temporales (placeholders) para las demás rutas que aún no construimos
 const Placeholder = ({ title }: { title: string }) => (
   <div className="animate-in fade-in flex flex-col items-center justify-center h-64 text-center">
     <h2 className="text-3xl font-display font-bold text-jengibre-primary mb-2">{title}</h2>
@@ -47,7 +47,7 @@ const App = () => (
               <Route path="/proyeccion" element={<Proyeccion />} />
               <Route path="/salud" element={<SaludFinanciera />} />
               <Route path="/contadora" element={<Placeholder title="Módulo Contadora" />} />
-              <Route path="/configuracion" element={<Placeholder title="Configuración" />} />
+              <Route path="/configuracion" element={<Configuracion />} />
             </Route>
             
             <Route path="*" element={<NotFound />} />
