@@ -8,7 +8,7 @@ export default function Login() {
   const { session, isLoading } = useAuth();
 
   if (isLoading) {
-    return <div className="min-h-screen bg-jengibre-cream flex items-center justify-center">Cargando...</div>;
+    return <div className="min-h-screen bg-[#F2E8D9] flex items-center justify-center">Cargando...</div>;
   }
 
   if (session) {
@@ -16,27 +16,25 @@ export default function Login() {
   }
 
   return (
-    <div 
-      className="min-h-screen flex flex-col items-center justify-center p-4 relative bg-cover bg-center"
-      style={{ backgroundImage: "url('/Fondo.jpg')", backgroundColor: '#F2E8D9' }}
-    >
-      {/* Overlay para dar legibilidad al fondo texturado */}
-      <div className="absolute inset-0 bg-[#F2E8D9]/60 backdrop-blur-[2px] z-0"></div>
+    <div className="min-h-screen flex flex-col items-center justify-center p-4 bg-[#F2E8D9]">
       
-      <div className="z-10 mb-8 text-center flex flex-col items-center animate-in fade-in slide-in-from-bottom-4 duration-700">
-        <img 
-          src="/Logo%20IG.jpg" 
-          alt="Logo Jengibre" 
-          className="w-32 h-32 rounded-full shadow-2xl object-cover border-4 border-white mb-5" 
-        />
-        <div className="bg-white/80 backdrop-blur-md px-6 py-2.5 rounded-full shadow-sm border border-white/50">
+      <div className="mb-8 text-center flex flex-col items-center animate-in fade-in slide-in-from-bottom-4 duration-700 max-w-sm">
+        <div className="w-32 h-32 rounded-full shadow-xl mb-5 overflow-hidden border-4 border-white bg-white shrink-0">
+          <img 
+            src="/Logo IG.jpg" 
+            alt="Logo Jengibre" 
+            className="w-full h-full object-cover"
+            onError={(e) => { e.currentTarget.src = 'https://ui-avatars.com/api/?name=Jengibre&background=C8522A&color=fff'; }}
+          />
+        </div>
+        <div className="bg-white px-6 py-2.5 rounded-full shadow-sm border border-gray-200">
           <p className="text-sm text-jengibre-dark font-sans font-medium uppercase tracking-widest">
             Software de Gestión <span className="text-jengibre-primary font-bold">calidad Jengibre</span>
           </p>
         </div>
       </div>
       
-      <div className="z-10 bg-white/95 backdrop-blur-xl p-8 rounded-3xl shadow-2xl border border-white/50 w-full max-w-md animate-in fade-in zoom-in-95 duration-500 delay-150">
+      <div className="bg-white p-8 rounded-3xl shadow-xl border border-gray-100 w-full max-w-md animate-in fade-in zoom-in-95 duration-500 delay-150">
         <Auth
           supabaseClient={supabase}
           providers={[]}
@@ -45,8 +43,8 @@ export default function Login() {
             variables: {
               default: {
                 colors: {
-                  brand: '#1A2E26', // Verde oscuro del logo
-                  brandAccent: '#C8522A', // Naranja jengibre
+                  brand: '#1A2E26',
+                  brandAccent: '#C8522A',
                   inputText: '#2C2C2C',
                   inputBackground: '#FFFFFF',
                   inputBorder: '#E8D5C0',

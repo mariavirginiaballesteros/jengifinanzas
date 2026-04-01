@@ -30,26 +30,23 @@ export default function Layout() {
   ];
 
   return (
-    <div 
-      className="flex h-screen overflow-hidden relative bg-cover bg-center"
-      style={{ backgroundImage: "url('/Fondo.jpg')", backgroundColor: '#F2E8D9' }}
-    >
-      {/* Overlay para suavizar el fondo y asegurar legibilidad del contenido */}
-      <div className="absolute inset-0 bg-[#F2E8D9]/80 backdrop-blur-[2px] z-0"></div>
-
+    <div className="flex h-screen overflow-hidden bg-[#FAF6F0]">
       {/* SIDEBAR DESKTOP */}
-      <nav className="w-64 bg-[#141c18]/95 backdrop-blur-xl text-jengibre-white hidden md:flex flex-col flex-shrink-0 relative z-10 border-r border-gray-800 shadow-2xl">
-        <div className="p-8 flex flex-col items-center text-center gap-3 border-b border-gray-800/50">
-          <img 
-            src="/Logo%20IG.jpg" 
-            alt="Jengibre Logo" 
-            className="w-24 h-24 rounded-full shadow-lg object-cover border-2 border-gray-700" 
-          />
+      <nav className="w-64 bg-[#1A2E26] text-white hidden md:flex flex-col flex-shrink-0 border-r border-[#13221c] shadow-xl z-20">
+        <div className="p-8 flex flex-col items-center text-center gap-3 border-b border-[#254236]">
+          <div className="w-24 h-24 rounded-full shadow-lg border-2 border-[#2A4A3D] overflow-hidden bg-white shrink-0">
+            <img 
+              src="/Logo IG.jpg" 
+              alt="Jengibre Logo" 
+              className="w-full h-full object-cover" 
+              onError={(e) => { e.currentTarget.src = 'https://ui-avatars.com/api/?name=J&background=C8522A&color=fff'; }}
+            />
+          </div>
           <div className="mt-2 space-y-1">
-            <p className="text-[10px] text-gray-400 uppercase tracking-widest leading-tight font-medium">
+            <p className="text-[10px] text-[#A3B8B0] uppercase tracking-widest leading-tight font-medium">
               Software de Gestión
             </p>
-            <p className="text-xs font-bold text-jengibre-primary uppercase tracking-widest">
+            <p className="text-xs font-bold text-[#D4A843] uppercase tracking-widest">
               Calidad Jengibre
             </p>
           </div>
@@ -63,8 +60,8 @@ export default function Layout() {
               className={({ isActive }) => cn(
                 "flex items-center gap-3 px-3 py-2.5 rounded-xl transition-all duration-200",
                 isActive 
-                  ? "bg-jengibre-primary text-white font-medium shadow-md" 
-                  : "text-gray-400 hover:bg-white/10 hover:text-white"
+                  ? "bg-jengibre-primary text-white font-bold shadow-md" 
+                  : "text-[#A3B8B0] hover:bg-[#254236] hover:text-white"
               )}
             >
               {item.icon}
@@ -72,10 +69,10 @@ export default function Layout() {
             </NavLink>
           ))}
         </div>
-        <div className="p-4 border-t border-gray-800/50">
+        <div className="p-4 border-t border-[#254236]">
           <button 
             onClick={signOut} 
-            className="flex items-center gap-3 w-full px-3 py-2 text-gray-400 hover:bg-red-500/10 hover:text-red-400 rounded-xl transition-colors"
+            className="flex items-center gap-3 w-full px-3 py-2 text-[#A3B8B0] hover:bg-red-500/10 hover:text-red-400 rounded-xl transition-colors"
           >
             <LogOut size={20} /> Salir
           </button>
@@ -84,17 +81,20 @@ export default function Layout() {
 
       {/* MOBILE FULL MENU OVERLAY */}
       {mobileMenuOpen && (
-        <div className="md:hidden fixed inset-0 z-50 bg-[#141c18] text-jengibre-white flex flex-col animate-in slide-in-from-left-full duration-300">
-          <div className="p-6 flex flex-col items-center justify-center border-b border-gray-800 relative">
-            <button onClick={() => setMobileMenuOpen(false)} className="absolute top-4 right-4 p-2 text-gray-400 hover:text-white bg-white/5 rounded-full"><X size={24} /></button>
-            <img 
-              src="/Logo%20IG.jpg" 
-              alt="Jengibre Logo" 
-              className="w-20 h-20 rounded-full shadow-lg object-cover border-2 border-gray-700 mb-4" 
-            />
+        <div className="md:hidden fixed inset-0 z-50 bg-[#1A2E26] text-white flex flex-col animate-in slide-in-from-left-full duration-300">
+          <div className="p-6 flex flex-col items-center justify-center border-b border-[#254236] relative">
+            <button onClick={() => setMobileMenuOpen(false)} className="absolute top-4 right-4 p-2 text-[#A3B8B0] hover:text-white bg-white/5 rounded-full"><X size={24} /></button>
+            <div className="w-20 h-20 rounded-full shadow-lg border-2 border-[#2A4A3D] overflow-hidden bg-white mb-4 shrink-0">
+              <img 
+                src="/Logo IG.jpg" 
+                alt="Jengibre Logo" 
+                className="w-full h-full object-cover" 
+                onError={(e) => { e.currentTarget.src = 'https://ui-avatars.com/api/?name=J&background=C8522A&color=fff'; }}
+              />
+            </div>
             <div className="text-center">
-              <p className="text-[10px] text-gray-400 uppercase tracking-widest leading-tight font-medium">Software de Gestión</p>
-              <p className="text-xs font-bold text-jengibre-primary uppercase tracking-widest mt-1">Calidad Jengibre</p>
+              <p className="text-[10px] text-[#A3B8B0] uppercase tracking-widest leading-tight font-medium">Software de Gestión</p>
+              <p className="text-xs font-bold text-[#D4A843] uppercase tracking-widest mt-1">Calidad Jengibre</p>
             </div>
           </div>
           
@@ -106,7 +106,7 @@ export default function Layout() {
                 onClick={() => setMobileMenuOpen(false)}
                 className={({ isActive }) => cn(
                   "flex items-center gap-4 px-4 py-3.5 rounded-xl text-lg transition-colors",
-                  isActive ? "bg-jengibre-primary text-white font-bold" : "text-gray-300 active:bg-white/10"
+                  isActive ? "bg-jengibre-primary text-white font-bold" : "text-[#A3B8B0] active:bg-[#254236]"
                 )}
               >
                 {item.icon}
@@ -115,7 +115,7 @@ export default function Layout() {
             ))}
             <button 
               onClick={() => { setMobileMenuOpen(false); signOut(); }} 
-              className="flex items-center gap-4 px-4 py-4 text-red-400 mt-auto border-t border-gray-800"
+              className="flex items-center gap-4 px-4 py-4 text-red-400 mt-auto border-t border-[#254236]"
             >
               <LogOut size={20} /> Salir de la cuenta
             </button>
@@ -124,28 +124,27 @@ export default function Layout() {
       )}
 
       {/* MOBILE BOTTOM NAV */}
-      <nav className="md:hidden fixed bottom-0 w-full bg-[#141c18]/95 backdrop-blur-md text-jengibre-white flex justify-around items-center h-16 z-40 px-2 pb-safe border-t border-gray-800 shadow-[0_-4px_20px_rgba(0,0,0,0.3)]">
-        <NavLink to="/" className={({isActive}) => cn("p-3 rounded-full transition-colors", isActive ? "text-jengibre-primary bg-white/10" : "text-gray-400")}>
+      <nav className="md:hidden fixed bottom-0 w-full bg-[#1A2E26] text-white flex justify-around items-center h-16 z-40 px-2 pb-safe border-t border-[#13221c] shadow-[0_-4px_20px_rgba(0,0,0,0.3)]">
+        <NavLink to="/" className={({isActive}) => cn("p-3 rounded-full transition-colors", isActive ? "text-[#D4A843] bg-white/10" : "text-[#A3B8B0]")}>
           <Home size={24} />
         </NavLink>
-        <NavLink to="/facturacion" className={({isActive}) => cn("p-3 rounded-full transition-colors", isActive ? "text-jengibre-primary bg-white/10" : "text-gray-400")}>
+        <NavLink to="/facturacion" className={({isActive}) => cn("p-3 rounded-full transition-colors", isActive ? "text-[#D4A843] bg-white/10" : "text-[#A3B8B0]")}>
           <FileText size={24} />
         </NavLink>
-        <NavLink to="/clientes" className={({isActive}) => cn("p-3 rounded-full transition-colors", isActive ? "text-jengibre-primary bg-white/10" : "text-gray-400")}>
+        <NavLink to="/clientes" className={({isActive}) => cn("p-3 rounded-full transition-colors", isActive ? "text-[#D4A843] bg-white/10" : "text-[#A3B8B0]")}>
           <Briefcase size={24} />
         </NavLink>
-        <button onClick={() => setMobileMenuOpen(true)} className="p-3 text-gray-400 rounded-full hover:bg-white/5 transition-colors">
+        <button onClick={() => setMobileMenuOpen(true)} className="p-3 text-[#A3B8B0] rounded-full hover:bg-white/5 transition-colors">
           <Menu size={24} />
         </button>
       </nav>
 
       {/* MAIN CONTENT AREA */}
-      <main className="flex-1 overflow-y-auto flex flex-col pb-16 md:pb-0 relative z-10">
+      <main className="flex-1 overflow-y-auto flex flex-col pb-16 md:pb-0 z-10">
         <div className="flex-1 p-4 md:p-8 max-w-7xl mx-auto w-full">
           <Outlet />
         </div>
       </main>
-
     </div>
   );
 }
