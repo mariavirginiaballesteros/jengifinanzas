@@ -25,15 +25,17 @@ export default {
       },
       colors: {
         jengibre: {
-          primary: "#C8522A",
-          cream: "#F2E8D9",
-          card: "#E8D5C0",
-          dark: "#2C2C2C",
+          primary: "#E52E6A", // Fucsia (Acentos principales, botones)
+          secondary: "#E7DD18", // Amarillo (Acentos secundarios)
+          tertiary: "#7FC4D2", // Celeste
+          cream: "#F4F5F7", // Fondo claro para lectura
+          card: "#FFFFFF",
+          dark: "#2B317A", // Azul Profundo (Color corporativo principal)
           white: "#FFFFFF",
-          green: "#5A8A6B",
-          amber: "#D4A843",
-          red: "#C0392B",
-          border: "#D4B896",
+          green: "#1A6B5C",
+          amber: "#E7DD18",
+          red: "#E52E6A",
+          border: "#E2E8F0",
         },
         border: "hsl(var(--border))",
         input: "hsl(var(--input))",
@@ -83,28 +85,6 @@ export default {
         lg: "var(--radius)",
         md: "calc(var(--radius) - 2px)",
         sm: "calc(var(--radius) - 4px)",
-      },
-      keyframes: {
-        "accordion-down": {
-          from: {
-            height: "0",
-          },
-          to: {
-            height: "var(--radix-accordion-content-height)",
-          },
-        },
-        "accordion-up": {
-          from: {
-            height: "var(--radix-accordion-content-height)",
-          },
-          to: {
-            height: "0",
-          },
-        },
-      },
-      animation: {
-        "accordion-down": "accordion-down 0.2s ease-out",
-        "accordion-up": "accordion-up 0.2s ease-out",
       },
     },
   },
