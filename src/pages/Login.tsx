@@ -38,7 +38,7 @@ export default function Login() {
       </div>
       
       <div className="z-10 bg-white p-8 rounded-3xl shadow-2xl border border-gray-100 w-full max-w-md animate-in fade-in zoom-in-95 duration-500 delay-150">
-        <h2 className="text-2xl font-display font-bold text-center text-jengibre-dark mb-6">Iniciar Sesión</h2>
+        <h2 className="text-2xl font-display font-bold text-center text-jengibre-dark mb-6">Acceso al Sistema</h2>
         <Auth
           supabaseClient={supabase}
           providers={[]}
@@ -53,6 +53,7 @@ export default function Login() {
                   inputBackground: '#FFFFFF',
                   inputBorder: '#E2E8F0',
                   inputBorderFocus: '#E52E6A',
+                  messageText: '#1A6B5C', // Color para mensajes de éxito (Revisá tu email)
                 },
                 fonts: {
                   bodyFontFamily: '"DM Sans", sans-serif',
@@ -82,10 +83,19 @@ export default function Login() {
               sign_up: {
                 email_label: 'Correo electrónico',
                 password_label: 'Contraseña',
-                button_label: 'Registrarse',
+                button_label: 'Crear cuenta segura',
                 loading_button_label: 'Registrando...',
                 email_input_placeholder: 'tu@email.com',
                 password_input_placeholder: 'Tu contraseña',
+                confirmation_text: '¡Casi listo! Revisá tu casilla de correo para validar tu identidad.',
+              },
+              forgotten_password: {
+                link_text: '¿Olvidaste tu contraseña?',
+                email_label: 'Correo electrónico',
+                password_label: 'Contraseña',
+                button_label: 'Enviar instrucciones de reseteo',
+                loading_button_label: 'Enviando correo...',
+                confirmation_text: 'Te enviamos un enlace seguro para recuperar tu acceso.',
               }
             }
           }}
