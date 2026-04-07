@@ -2,7 +2,7 @@ import React, { useState, useMemo } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { supabase } from '@/integrations/supabase/client';
 import { TipAlert } from '@/components/TipAlert';
-import { Plus, Edit2, Trash2, MessageCircle, Save, ChevronDown, ChevronRight, Building } from 'lucide-react';
+import { Plus, Edit2, Trash2, MessageCircle, Save, ChevronDown, ChevronRight, Building, Send } from 'lucide-react';
 import { formatARS } from '@/lib/utils';
 import { showSuccess, showError } from '@/utils/toast';
 
@@ -19,10 +19,17 @@ export default function Facturacion() {
     monto_base: '', porcentaje_inflacion: 0, responsable_afip: '', cuit_responsable: '', descripcion: ''
   });
 
+  // Modal para configurar el mensaje de WhatsApp
+  const [wpModalOpen, setWpModalOpen] = useState(false);
+  const [wpData, setWpData] = useState<any>({
+    row: null,
+    periodo: '',
+    notasExtras: ''
+  });
+
   const { data: facturas, isLoading } = useQuery({
     queryKey: ['facturacion'],
     queryFn: async () => {
-      // Traemos también dia_facturacion del cliente
       const { data, error } = await supabase
         .from('facturacion')
         .select(`*, cliente:clientes(id, nombre, cuit, dia_facturacion)`)
@@ -115,7 +122,6 @@ export default function Facturacion() {
       }
     });
     
-    // Convertir objeto a array y ordenar alfabéticamente
     return Object.values(groups).sort((a, b) => {
       if (a.id === 'manual') return 1;
       if (b.id === 'manual') return -1;
@@ -129,21 +135,37 @@ export default function Facturacion() {
     );
   };
 
-  const handleSolicitarFactura = (row: any) => {
-    // Calculamos el último día del mes y el nombre del mes
+  const openWpModal = (row: any) => {
     const [year, month] = (row.mes || '').split('-');
-    const lastDay = new Date(Number(year), Number(month), 0).getDate(); // Obtiene si tiene 28, 30 o 31 días
+    const lastDay = new Date(Number(year), Number(month), 0).getDate();
+    const diaVto = row.cliente?.dia_facturacion || 10;
+    
+    // Buscamos si ya hay un período guardado localmente para este cliente
+    const clientId = row.cliente?.id;
+    const savedPeriodo = clientId ? localStorage.getItem(`periodo_facturacion_${clientId}`) : null;
+    
+    // Si no hay nada guardado, sugerimos uno base
+    const defaultPeriodo = savedPeriodo || `01 al ${lastDay} de cada mes - fecha de vto para el pago ${diaVto} de cada mes.`;
+
+    setWpData({
+      row,
+      periodo: defaultPeriodo,
+      notasExtras: ''
+    });
+    setWpModalOpen(true);
+  };
+
+  const confirmWpSend = () => {
+    const { row, periodo, notasExtras } = wpData;
+    
+    // Guardamos el período elegido para que la próxima vez se auto-cargue
+    if (row.cliente?.id) {
+      localStorage.setItem(`periodo_facturacion_${row.cliente.id}`, periodo);
+    }
+
+    const [year, month] = (row.mes || '').split('-');
     const mesDate = new Date(Number(year), Number(month) - 1, 15);
     const mesNombre = mesDate.toLocaleDateString('es-AR', { month: 'long' });
-
-    // Determinar el día de vencimiento
-    let diaVto = row.cliente?.dia_facturacion;
-    if (!diaVto) {
-      const clientName = (row.cliente?.nombre || '').toUpperCase();
-      if (clientName.includes('COFARSUR')) diaVto = 6;
-      else if (clientName.includes('SEGUNDA') || clientName.includes('METHOD')) diaVto = 10;
-      else diaVto = 10; // Día por defecto general
-    }
 
     const texto = `Hola! Solicito la emisión de factura:
     
@@ -151,12 +173,13 @@ export default function Facturacion() {
 *CUIT Empresa:* ${row.cuit_responsable || row.cliente?.cuit || 'No especificado'}
 *Cuota:* ${row.cuota}
 *Mes:* ${mesNombre.charAt(0).toUpperCase() + mesNombre.slice(1)}
-*Período facturado:* 01 al ${lastDay} de cada mes - fecha de vto para el pago ${diaVto} de cada mes.
+*Período facturado:* ${periodo}
 *Monto final a facturar:* ${formatARS(row.monto_final || row.monto_base)}
 *Responsable AFIP:* ${row.responsable_afip || 'No especificado'}
-*Descripción:* ${row.descripcion || '-'}
+*Descripción:* ${row.descripcion || '-'}${notasExtras ? `\n\n*Notas:* ${notasExtras}` : ''}
 `;
     window.open(`https://wa.me/?text=${encodeURIComponent(texto)}`, '_blank');
+    setWpModalOpen(false);
   };
 
   const startEditing = (row: any) => {
@@ -192,6 +215,48 @@ export default function Facturacion() {
       <TipAlert id="facturacion_grupos" title="💡 Agrupado por Proyecto">
         Ahora la facturación se agrupa por cliente. Hace clic sobre cualquier recuadro para expandir y ver todas las cuotas, editar montos o cambiar los estados de pago.
       </TipAlert>
+
+      {/* Modal Envío WhatsApp */}
+      {wpModalOpen && (
+        <div className="fixed inset-0 bg-black/50 z-[60] flex items-center justify-center p-4">
+          <div className="bg-white rounded-2xl w-full max-w-md p-6 shadow-xl animate-in zoom-in-95">
+            <h2 className="text-xl font-display font-bold mb-2 flex items-center gap-2 text-jengibre-dark">
+              <MessageCircle className="text-[#25D366]" /> Solicitar Factura
+            </h2>
+            <p className="text-sm text-gray-500 mb-5">Podés personalizar el período a facturar. El sistema lo recordará automáticamente la próxima vez para este cliente.</p>
+            
+            <div className="space-y-4">
+              <div>
+                <label className="block text-sm font-bold text-gray-700 mb-1">Período Facturado</label>
+                <textarea 
+                  rows={2}
+                  className="w-full border border-gray-300 rounded-lg p-2.5 outline-none focus:ring-2 focus:ring-jengibre-primary" 
+                  value={wpData.periodo} 
+                  onChange={e => setWpData({...wpData, periodo: e.target.value})}
+                  placeholder="Ej: 01 al 30 de cada mes..."
+                />
+              </div>
+              <div>
+                <label className="block text-sm font-bold text-gray-700 mb-1">Notas extras para la contadora (Opcional)</label>
+                <input 
+                  type="text"
+                  className="w-full border border-gray-300 rounded-lg p-2.5 outline-none focus:ring-2 focus:ring-jengibre-primary" 
+                  value={wpData.notasExtras} 
+                  onChange={e => setWpData({...wpData, notasExtras: e.target.value})}
+                  placeholder="Ej: Facturar mitad a cada CUIT..."
+                />
+              </div>
+            </div>
+            
+            <div className="flex justify-end gap-3 mt-6">
+              <button onClick={() => setWpModalOpen(false)} className="px-4 py-2 text-gray-600 font-medium">Cancelar</button>
+              <button onClick={confirmWpSend} className="bg-[#25D366] hover:bg-[#1ebd5c] text-white px-6 py-2 rounded-lg font-bold flex items-center gap-2 shadow-sm transition-colors">
+                <Send size={16} /> Enviar a WhatsApp
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Modal Fila Manual */}
       {isFormOpen && (
@@ -348,7 +413,7 @@ export default function Facturacion() {
                                     <button onClick={saveEditing} className="p-1.5 bg-green-100 text-green-700 rounded shadow-sm hover:bg-green-200" title="Guardar"><Save size={16} /></button>
                                   ) : (
                                     <>
-                                      <button onClick={() => handleSolicitarFactura(row)} className="p-1.5 text-green-600 bg-green-50 hover:bg-green-100 rounded border border-green-100" title="Solicitar a contadora por WhatsApp">
+                                      <button onClick={() => openWpModal(row)} className="p-1.5 text-green-600 bg-green-50 hover:bg-green-100 rounded border border-green-100" title="Solicitar a contadora por WhatsApp">
                                         <MessageCircle size={16} />
                                       </button>
                                       <button onClick={() => startEditing(row)} className="p-1.5 text-gray-400 hover:text-blue-600" title="Editar cuota"><Edit2 size={16} /></button>
