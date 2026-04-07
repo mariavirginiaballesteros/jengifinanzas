@@ -2,7 +2,7 @@ import React, { useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { supabase } from '@/integrations/supabase/client';
 import { TipAlert } from '@/components/TipAlert';
-import { Plus, Edit2, Trash2, RefreshCw, MessageCircle, ArrowRightCircle } from 'lucide-react';
+import { Plus, Edit2, Trash2, RefreshCw, MessageCircle } from 'lucide-react';
 import { formatARS } from '@/lib/utils';
 import { showSuccess, showError } from '@/utils/toast';
 
@@ -32,7 +32,7 @@ export default function Recuperos() {
     fecha_pago: new Date().toISOString().split('T')[0],
     tiene_iva: false,
     iibb_porcentaje: 3,
-    estado: 'pendiente', // pendiente | facturado | cobrado
+    estado: 'pendiente', 
     fecha_cobro: '',
     notas: ''
   };
@@ -181,6 +181,8 @@ export default function Recuperos() {
     
     if (rec.estado === 'facturado') {
       msg += `Ya les enviamos la factura correspondiente por este monto. `;
+    } else if (rec.estado === 'enviado_sin_factura') {
+      msg += `Avanzamos con el cobro sin emisión de factura como lo conversamos. `;
     } else if (rec.tiene_iva) {
       msg += `En breve les estaremos enviando la factura correspondiente. `;
     }
@@ -322,9 +324,10 @@ export default function Recuperos() {
                     className="w-full border border-gray-300 rounded-lg p-2.5 focus:ring-2 focus:ring-jengibre-primary outline-none font-bold"
                     value={formData.estado} onChange={e => setFormData({...formData, estado: e.target.value})}
                   >
+                    <option value="enviado_sin_factura">Enviado para cobrar sin factura</option>
                     <option value="pendiente">Pendiente de facturar</option>
-                    <option value="facturado">Facturado (Sin cobrar)</option>
-                    <option value="cobrado">Cobrado / Resuelto</option>
+                    <option value="facturado">Facturado esperando cobrar</option>
+                    <option value="cobrado">Pago completado</option>
                   </select>
                 </div>
                 {formData.estado === 'cobrado' && (
@@ -394,6 +397,7 @@ export default function Recuperos() {
                     switch(status) {
                       case 'cobrado': return 'bg-green-100 text-green-800 border border-green-200';
                       case 'facturado': return 'bg-blue-100 text-blue-800 border border-blue-200';
+                      case 'enviado_sin_factura': return 'bg-purple-100 text-purple-800 border border-purple-200';
                       default: return 'bg-amber-100 text-amber-800 border border-amber-200';
                     }
                   };
@@ -421,9 +425,10 @@ export default function Recuperos() {
                           value={rec.estado}
                           onChange={(e) => updateEstadoMutation.mutate({ id: rec.id, estado: e.target.value, currentFechaCobro: rec.fecha_cobro })}
                         >
-                          <option value="pendiente">Pendiente</option>
-                          <option value="facturado">Facturado</option>
-                          <option value="cobrado">Cobrado ✓</option>
+                          <option value="enviado_sin_factura">Enviado (Sin Factura)</option>
+                          <option value="pendiente">Pendiente de facturar</option>
+                          <option value="facturado">Facturado (Esperando)</option>
+                          <option value="cobrado">Pago completado ✓</option>
                         </select>
                         {rec.estado === 'cobrado' && rec.fecha_cobro && (
                           <p className="text-[10px] text-green-600 font-bold mt-1">el {new Date(rec.fecha_cobro).toLocaleDateString('es-AR')}</p>
