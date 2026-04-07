@@ -1,6 +1,7 @@
 import React from 'react';
 import { formatARS } from '@/lib/utils';
 import { Plus, FileText, RefreshCw, AlertCircle } from 'lucide-react';
+import { Link } from 'react-router-dom';
 
 const StatCard = ({ title, value, sub, trend = 'neutral' }: { title: string, value: string, sub?: string, trend?: 'positive' | 'negative' | 'neutral' }) => (
   <div className="bg-jengibre-white border border-jengibre-border p-5 rounded-2xl shadow-sm hover:shadow-md transition-shadow">
@@ -50,9 +51,9 @@ export default function Dashboard() {
           <p className="text-gray-600 mt-1">Acá está el resumen financiero al día de hoy.</p>
         </div>
         <div className="flex gap-2">
-          <button className="bg-jengibre-primary hover:bg-[#a64120] text-white px-4 py-2.5 rounded-lg font-medium flex items-center gap-2 transition-colors shadow-sm">
+          <Link to="/caja" className="bg-jengibre-primary hover:bg-[#a64120] text-white px-4 py-2.5 rounded-lg font-medium flex items-center gap-2 transition-colors shadow-sm">
             <Plus size={20} /> Cargar movimiento
-          </button>
+          </Link>
         </div>
       </header>
 
@@ -110,14 +111,14 @@ export default function Dashboard() {
           <section className="bg-jengibre-white border border-jengibre-border rounded-2xl p-5">
             <h2 className="text-lg font-display font-bold mb-4 text-gray-700">Accesos Rápidos</h2>
             <div className="space-y-3">
-              <button className="w-full flex items-center gap-3 p-3 rounded-xl border border-jengibre-border hover:bg-jengibre-cream transition-colors text-left">
+              <Link to="/contadora" className="w-full flex items-center gap-3 p-3 rounded-xl border border-jengibre-border hover:bg-jengibre-cream transition-colors text-left block">
                 <div className="bg-jengibre-card p-2 rounded-lg text-jengibre-primary"><FileText size={20} /></div>
                 <div className="font-medium text-jengibre-dark">Solicitar factura</div>
-              </button>
-              <button className="w-full flex items-center gap-3 p-3 rounded-xl border border-jengibre-border hover:bg-jengibre-cream transition-colors text-left">
+              </Link>
+              <Link to="/recuperos" className="w-full flex items-center gap-3 p-3 rounded-xl border border-jengibre-border hover:bg-jengibre-cream transition-colors text-left block">
                 <div className="bg-jengibre-card p-2 rounded-lg text-jengibre-primary"><RefreshCw size={20} /></div>
                 <div className="font-medium text-jengibre-dark">Ver recuperos pendientes</div>
-              </button>
+              </Link>
             </div>
           </section>
 
