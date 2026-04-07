@@ -22,9 +22,10 @@ export default function Facturacion() {
   const { data: facturas, isLoading } = useQuery({
     queryKey: ['facturacion'],
     queryFn: async () => {
+      // Traemos también dia_facturacion del cliente
       const { data, error } = await supabase
         .from('facturacion')
-        .select(`*, cliente:clientes(id, nombre, cuit)`)
+        .select(`*, cliente:clientes(id, nombre, cuit, dia_facturacion)`)
         .order('mes', { ascending: true });
       if (error) throw error;
       return data;
@@ -129,13 +130,28 @@ export default function Facturacion() {
   };
 
   const handleSolicitarFactura = (row: any) => {
-    const mesNombre = new Date(row.mes).toLocaleDateString('es-AR', { month: 'long', timeZone: 'UTC' });
+    // Calculamos el último día del mes y el nombre del mes
+    const [year, month] = (row.mes || '').split('-');
+    const lastDay = new Date(Number(year), Number(month), 0).getDate(); // Obtiene si tiene 28, 30 o 31 días
+    const mesDate = new Date(Number(year), Number(month) - 1, 15);
+    const mesNombre = mesDate.toLocaleDateString('es-AR', { month: 'long' });
+
+    // Determinar el día de vencimiento
+    let diaVto = row.cliente?.dia_facturacion;
+    if (!diaVto) {
+      const clientName = (row.cliente?.nombre || '').toUpperCase();
+      if (clientName.includes('COFARSUR')) diaVto = 6;
+      else if (clientName.includes('SEGUNDA') || clientName.includes('METHOD')) diaVto = 10;
+      else diaVto = 10; // Día por defecto general
+    }
+
     const texto = `Hola! Solicito la emisión de factura:
     
 *Proyecto:* ${row.cliente?.nombre || 'Particular'}
 *CUIT Empresa:* ${row.cuit_responsable || row.cliente?.cuit || 'No especificado'}
 *Cuota:* ${row.cuota}
 *Mes:* ${mesNombre.charAt(0).toUpperCase() + mesNombre.slice(1)}
+*Período facturado:* 01 al ${lastDay} de cada mes - fecha de vto para el pago ${diaVto} de cada mes.
 *Monto final a facturar:* ${formatARS(row.monto_final || row.monto_base)}
 *Responsable AFIP:* ${row.responsable_afip || 'No especificado'}
 *Descripción:* ${row.descripcion || '-'}
@@ -279,7 +295,8 @@ export default function Facturacion() {
                       <tbody>
                         {group.items.map((row: any) => {
                           const isEditing = editingId === row.id;
-                          const mesNombre = new Date(row.mes).toLocaleDateString('es-AR', { month: 'short', year: 'numeric', timeZone: 'UTC' });
+                          const mesDate = new Date(row.mes + 'T12:00:00Z');
+                          const mesNombre = mesDate.toLocaleDateString('es-AR', { month: 'short', year: 'numeric' });
                           
                           return (
                             <tr key={row.id} className="border-b border-gray-100 hover:bg-gray-50/50">
