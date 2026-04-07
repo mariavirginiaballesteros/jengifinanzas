@@ -11,6 +11,7 @@ import Clientes from "./pages/Clientes";
 import Facturacion from "./pages/Facturacion";
 import Equipo from "./pages/Equipo";
 import Caja from "./pages/Caja";
+import Recuperos from "./pages/Recuperos";
 import Compras from "./pages/Compras";
 import Proyeccion from "./pages/Proyeccion";
 import SaludFinanciera from "./pages/SaludFinanciera";
@@ -19,13 +20,6 @@ import Contadora from "./pages/Contadora";
 import NotFound from "./pages/NotFound";
 
 const queryClient = new QueryClient();
-
-const Placeholder = ({ title }: { title: string }) => (
-  <div className="animate-in fade-in flex flex-col items-center justify-center h-64 text-center">
-    <h2 className="text-3xl font-display font-bold text-jengibre-primary mb-2">{title}</h2>
-    <p className="text-gray-500 font-sans">Módulo en construcción 🚀</p>
-  </div>
-);
 
 const App = () => (
   <QueryClientProvider client={queryClient}>
@@ -43,7 +37,7 @@ const App = () => (
               <Route path="/facturacion" element={<Facturacion />} />
               <Route path="/equipo" element={<Equipo />} />
               <Route path="/caja" element={<Caja />} />
-              <Route path="/recuperos" element={<Placeholder title="Recuperos Pendientes" />} />
+              <Route path="/recuperos" element={<Recuperos />} />
               <Route path="/compras" element={<Compras />} />
               <Route path="/proyeccion" element={<Proyeccion />} />
               <Route path="/salud" element={<SaludFinanciera />} />
