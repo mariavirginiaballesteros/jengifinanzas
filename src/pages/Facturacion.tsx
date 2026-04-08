@@ -2,9 +2,27 @@ import React, { useState, useMemo } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { supabase } from '@/integrations/supabase/client';
 import { TipAlert } from '@/components/TipAlert';
-import { Plus, Edit2, Trash2, MessageCircle, Save, ChevronDown, ChevronRight, Building, Send } from 'lucide-react';
+import { Plus, Edit2, Trash2, MessageCircle, Save, ChevronDown, ChevronRight, Building, Send, Link as LinkIcon } from 'lucide-react';
 import { formatARS } from '@/lib/utils';
 import { showSuccess, showError } from '@/utils/toast';
+
+// Helper para guardar período y link dentro de descripcion
+const parseDescripcion = (descStr: string | null) => {
+  if (!descStr) return { texto: '', periodo: '', link: '' };
+  try {
+    const parsed = JSON.parse(descStr);
+    if (parsed && typeof parsed === 'object') {
+      return {
+        texto: parsed.texto || '',
+        periodo: parsed.periodo || '',
+        link: parsed.link || ''
+      };
+    }
+  } catch (e) {
+    // Si no es JSON, es una descripción vieja en texto plano
+  }
+  return { texto: descStr || '', periodo: '', link: '' };
+};
 
 export default function Facturacion() {
   const queryClient = useQueryClient();
@@ -16,7 +34,7 @@ export default function Facturacion() {
   const [isFormOpen, setIsFormOpen] = useState(false);
   const [manualForm, setManualForm] = useState<any>({
     cliente_id: '', cuota: '', mes: new Date().toISOString().split('T')[0], 
-    monto_base: '', porcentaje_inflacion: 0, responsable_afip: '', cuit_responsable: '', descripcion: ''
+    monto_base: '', porcentaje_inflacion: 0, responsable_afip: '', cuit_responsable: '', texto: '', periodo: '', link: ''
   });
 
   // Modal para configurar el mensaje de WhatsApp
@@ -64,8 +82,9 @@ export default function Facturacion() {
       
       const dataToSave = { ...payload, monto_final: final };
 
-      if (editingId) {
-        const { error } = await supabase.from('facturacion').update(dataToSave).eq('id', editingId);
+      if (editingId || payload.id) {
+        const idToUpdate = editingId || payload.id;
+        const { error } = await supabase.from('facturacion').update(dataToSave).eq('id', idToUpdate);
         if (error) throw error;
       } else {
         const { error } = await supabase.from('facturacion').insert([dataToSave]);
@@ -74,7 +93,6 @@ export default function Facturacion() {
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['facturacion'] });
-      showSuccess('Guardado correctamente');
       setEditingId(null);
       setIsFormOpen(false);
     },
@@ -140,12 +158,11 @@ export default function Facturacion() {
     const lastDay = new Date(Number(year), Number(month), 0).getDate();
     const diaVto = row.cliente?.dia_facturacion || 10;
     
-    // Buscamos si ya hay un período guardado localmente para este cliente
-    const clientId = row.cliente?.id;
-    const savedPeriodo = clientId ? localStorage.getItem(`periodo_facturacion_${clientId}`) : null;
+    const descData = parseDescripcion(row.descripcion);
+    const savedPeriodoLocal = row.cliente?.id ? localStorage.getItem(`periodo_facturacion_${row.cliente.id}`) : null;
     
-    // Si no hay nada guardado, sugerimos uno base
-    const defaultPeriodo = savedPeriodo || `01 al ${lastDay} de cada mes - fecha de vto para el pago ${diaVto} de cada mes.`;
+    // Prioridad: 1. Periodo guardado en la fila | 2. Cache local | 3. Default calculado
+    const defaultPeriodo = descData.periodo || savedPeriodoLocal || `01 al ${lastDay} de cada mes - fecha de vto para el pago ${diaVto} de cada mes.`;
 
     setWpData({
       row,
@@ -158,11 +175,22 @@ export default function Facturacion() {
   const confirmWpSend = () => {
     const { row, periodo, notasExtras } = wpData;
     
-    // Guardamos el período elegido para que la próxima vez se auto-cargue
+    // Guardamos localmente
     if (row.cliente?.id) {
       localStorage.setItem(`periodo_facturacion_${row.cliente.id}`, periodo);
     }
 
+    // Auto-guardamos el período en la base de datos para esta fila específica
+    const descData = parseDescripcion(row.descripcion);
+    const newDesc = JSON.stringify({ ...descData, periodo });
+    saveRowMutation.mutate({ 
+      id: row.id, 
+      monto_base: row.monto_base, 
+      porcentaje_inflacion: row.porcentaje_inflacion, 
+      descripcion: newDesc 
+    });
+
+    // Envío del msj
     const [year, month] = (row.mes || '').split('-');
     const mesDate = new Date(Number(year), Number(month) - 1, 15);
     const mesNombre = mesDate.toLocaleDateString('es-AR', { month: 'long' });
@@ -176,7 +204,7 @@ export default function Facturacion() {
 *Período facturado:* ${periodo}
 *Monto final a facturar:* ${formatARS(row.monto_final || row.monto_base)}
 *Responsable AFIP:* ${row.responsable_afip || 'No especificado'}
-*Descripción:* ${row.descripcion || '-'}${notasExtras ? `\n\n*Notas:* ${notasExtras}` : ''}
+*Descripción:* ${descData.texto || '-'}${notasExtras ? `\n\n*Notas:* ${notasExtras}` : ''}
 `;
     window.open(`https://wa.me/?text=${encodeURIComponent(texto)}`, '_blank');
     setWpModalOpen(false);
@@ -184,17 +212,42 @@ export default function Facturacion() {
 
   const startEditing = (row: any) => {
     setEditingId(row.id);
+    const descData = parseDescripcion(row.descripcion);
     setEditData({
       monto_base: row.monto_base,
       porcentaje_inflacion: row.porcentaje_inflacion || 0,
       responsable_afip: row.responsable_afip || '',
       cuit_responsable: row.cuit_responsable || '',
-      descripcion: row.descripcion || ''
+      texto: descData.texto || '',
+      periodo: descData.periodo || '',
+      link: descData.link || ''
     });
   };
 
   const saveEditing = () => {
-    saveRowMutation.mutate({ id: editingId, ...editData });
+    const newDesc = JSON.stringify({
+      texto: editData.texto,
+      periodo: editData.periodo,
+      link: editData.link
+    });
+    
+    saveRowMutation.mutate({ 
+      id: editingId, 
+      monto_base: editData.monto_base,
+      porcentaje_inflacion: editData.porcentaje_inflacion,
+      responsable_afip: editData.responsable_afip,
+      cuit_responsable: editData.cuit_responsable,
+      descripcion: newDesc
+    });
+  };
+
+  const saveManualForm = () => {
+    const newDesc = JSON.stringify({
+      texto: manualForm.texto,
+      periodo: manualForm.periodo,
+      link: manualForm.link
+    });
+    saveRowMutation.mutate({ ...manualForm, descripcion: newDesc });
   };
 
   return (
@@ -230,7 +283,7 @@ export default function Facturacion() {
                 <label className="block text-sm font-bold text-gray-700 mb-1">Período Facturado</label>
                 <textarea 
                   rows={2}
-                  className="w-full border border-gray-300 rounded-lg p-2.5 outline-none focus:ring-2 focus:ring-jengibre-primary" 
+                  className="w-full border border-gray-300 rounded-lg p-2.5 outline-none focus:ring-2 focus:ring-jengibre-primary text-sm" 
                   value={wpData.periodo} 
                   onChange={e => setWpData({...wpData, periodo: e.target.value})}
                   placeholder="Ej: 01 al 30 de cada mes..."
@@ -240,7 +293,7 @@ export default function Facturacion() {
                 <label className="block text-sm font-bold text-gray-700 mb-1">Notas extras para la contadora (Opcional)</label>
                 <input 
                   type="text"
-                  className="w-full border border-gray-300 rounded-lg p-2.5 outline-none focus:ring-2 focus:ring-jengibre-primary" 
+                  className="w-full border border-gray-300 rounded-lg p-2.5 outline-none focus:ring-2 focus:ring-jengibre-primary text-sm" 
                   value={wpData.notasExtras} 
                   onChange={e => setWpData({...wpData, notasExtras: e.target.value})}
                   placeholder="Ej: Facturar mitad a cada CUIT..."
@@ -261,33 +314,40 @@ export default function Facturacion() {
       {/* Modal Fila Manual */}
       {isFormOpen && (
         <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4">
-          <div className="bg-white rounded-2xl w-full max-w-lg p-6 shadow-xl animate-in zoom-in-95">
+          <div className="bg-white rounded-2xl w-full max-w-2xl p-6 shadow-xl animate-in zoom-in-95">
             <h2 className="text-xl font-display font-bold mb-4">Agregar Fila de Facturación</h2>
-            <div className="space-y-3">
-              <div>
-                <label className="text-xs font-bold text-gray-600">Proyecto (Cliente)</label>
-                <select className="w-full border rounded p-2" value={manualForm.cliente_id} onChange={e => setManualForm({...manualForm, cliente_id: e.target.value})}>
-                  <option value="">Ninguno / Manual...</option>
-                  {clientes?.map((c:any) => <option key={c.id} value={c.id}>{c.nombre}</option>)}
-                </select>
+            <div className="grid grid-cols-2 gap-4">
+              <div className="space-y-3">
+                <div>
+                  <label className="text-xs font-bold text-gray-600">Proyecto (Cliente)</label>
+                  <select className="w-full border rounded p-2 text-sm" value={manualForm.cliente_id} onChange={e => setManualForm({...manualForm, cliente_id: e.target.value})}>
+                    <option value="">Ninguno / Manual...</option>
+                    {clientes?.map((c:any) => <option key={c.id} value={c.id}>{c.nombre}</option>)}
+                  </select>
+                </div>
+                <div className="grid grid-cols-2 gap-3">
+                  <div><label className="text-xs font-bold text-gray-600">Cuota (1/12)</label><input className="w-full border rounded p-2 text-sm" value={manualForm.cuota} onChange={e => setManualForm({...manualForm, cuota: e.target.value})}/></div>
+                  <div><label className="text-xs font-bold text-gray-600">Mes facturado</label><input type="date" className="w-full border rounded p-2 text-sm" value={manualForm.mes} onChange={e => setManualForm({...manualForm, mes: e.target.value})}/></div>
+                </div>
+                <div className="grid grid-cols-2 gap-3">
+                  <div><label className="text-xs font-bold text-gray-600">Monto Base</label><input type="number" className="w-full border rounded p-2 text-sm" value={manualForm.monto_base} onChange={e => setManualForm({...manualForm, monto_base: e.target.value})}/></div>
+                  <div><label className="text-xs font-bold text-gray-600">Inflación (%)</label><input type="number" className="w-full border rounded p-2 text-sm" value={manualForm.porcentaje_inflacion} onChange={e => setManualForm({...manualForm, porcentaje_inflacion: e.target.value})}/></div>
+                </div>
               </div>
-              <div className="grid grid-cols-2 gap-3">
-                <div><label className="text-xs font-bold text-gray-600">Cuota (Ej: 1/12)</label><input className="w-full border rounded p-2" value={manualForm.cuota} onChange={e => setManualForm({...manualForm, cuota: e.target.value})}/></div>
-                <div><label className="text-xs font-bold text-gray-600">Mes a facturar</label><input type="date" className="w-full border rounded p-2" value={manualForm.mes} onChange={e => setManualForm({...manualForm, mes: e.target.value})}/></div>
+              <div className="space-y-3">
+                <div className="grid grid-cols-2 gap-3">
+                  <div><label className="text-xs font-bold text-gray-600">Resp. AFIP</label><input className="w-full border rounded p-2 text-sm" value={manualForm.responsable_afip} onChange={e => setManualForm({...manualForm, responsable_afip: e.target.value})}/></div>
+                  <div><label className="text-xs font-bold text-gray-600">CUIT Resp.</label><input className="w-full border rounded p-2 text-sm font-mono" value={manualForm.cuit_responsable} onChange={e => setManualForm({...manualForm, cuit_responsable: e.target.value})}/></div>
+                </div>
+                <div><label className="text-xs font-bold text-gray-600">Período Facturado</label><input className="w-full border rounded p-2 text-sm" value={manualForm.periodo} onChange={e => setManualForm({...manualForm, periodo: e.target.value})}/></div>
+                <div><label className="text-xs font-bold text-gray-600">Concepto</label><input className="w-full border rounded p-2 text-sm" value={manualForm.texto} onChange={e => setManualForm({...manualForm, texto: e.target.value})}/></div>
+                <div><label className="text-xs font-bold text-gray-600">Link Factura</label><input className="w-full border rounded p-2 text-sm" placeholder="https://" value={manualForm.link} onChange={e => setManualForm({...manualForm, link: e.target.value})}/></div>
               </div>
-              <div className="grid grid-cols-2 gap-3">
-                <div><label className="text-xs font-bold text-gray-600">Monto Base</label><input type="number" className="w-full border rounded p-2" value={manualForm.monto_base} onChange={e => setManualForm({...manualForm, monto_base: e.target.value})}/></div>
-                <div><label className="text-xs font-bold text-gray-600">Inflación (%)</label><input type="number" className="w-full border rounded p-2" value={manualForm.porcentaje_inflacion} onChange={e => setManualForm({...manualForm, porcentaje_inflacion: e.target.value})}/></div>
-              </div>
-              <div className="grid grid-cols-2 gap-3">
-                <div><label className="text-xs font-bold text-gray-600">Responsable AFIP</label><input className="w-full border rounded p-2" value={manualForm.responsable_afip} onChange={e => setManualForm({...manualForm, responsable_afip: e.target.value})}/></div>
-                <div><label className="text-xs font-bold text-gray-600">CUIT Resp.</label><input className="w-full border rounded p-2" value={manualForm.cuit_responsable} onChange={e => setManualForm({...manualForm, cuit_responsable: e.target.value})}/></div>
-              </div>
-              <div><label className="text-xs font-bold text-gray-600">Descripción</label><input className="w-full border rounded p-2" value={manualForm.descripcion} onChange={e => setManualForm({...manualForm, descripcion: e.target.value})}/></div>
             </div>
-            <div className="flex justify-end gap-3 mt-6">
+            
+            <div className="flex justify-end gap-3 mt-6 border-t pt-4">
               <button onClick={() => setIsFormOpen(false)} className="px-4 py-2 text-gray-600">Cancelar</button>
-              <button onClick={() => saveRowMutation.mutate(manualForm)} className="bg-jengibre-primary text-white px-6 py-2 rounded-lg font-medium">Guardar</button>
+              <button onClick={saveManualForm} className="bg-jengibre-primary text-white px-6 py-2 rounded-lg font-medium">Guardar</button>
             </div>
           </div>
         </div>
@@ -305,14 +365,13 @@ export default function Facturacion() {
         ) : (
           groupedFacturas.map((group) => {
             const isExpanded = expandedGroups.includes(group.id);
-            const isManual = group.id === 'manual';
             
             return (
               <div key={group.id} className="bg-white border border-jengibre-border rounded-xl shadow-sm overflow-hidden transition-all duration-300">
                 {/* HEADER DEL ACORDEÓN */}
                 <div 
                   onClick={() => toggleGroup(group.id)}
-                  className="p-5 flex flex-col sm:flex-row sm:items-center justify-between gap-4 cursor-pointer hover:bg-gray-50/80 transition-colors select-none"
+                  className="p-4 sm:p-5 flex flex-col sm:flex-row sm:items-center justify-between gap-4 cursor-pointer hover:bg-gray-50/80 transition-colors select-none"
                 >
                   <div className="flex items-center gap-4">
                     <div className={`p-2 rounded-lg ${isExpanded ? 'bg-jengibre-primary text-white' : 'bg-jengibre-cream text-jengibre-primary'}`}>
@@ -326,7 +385,7 @@ export default function Facturacion() {
                   
                   <div className="flex items-center gap-6 sm:ml-auto border-t sm:border-t-0 pt-3 sm:pt-0">
                     <div className="text-left sm:text-right flex-1">
-                      <p className="text-xs font-bold text-gray-400 uppercase tracking-wider mb-1">Avance de cobros</p>
+                      <p className="text-[10px] font-bold text-gray-400 uppercase tracking-wider mb-1">Avance de cobros</p>
                       <p className="font-mono text-sm">
                         <span className="font-bold text-green-600">{formatARS(group.totalPagado)}</span> 
                         <span className="text-gray-300 mx-1.5">/</span> 
@@ -339,22 +398,21 @@ export default function Facturacion() {
                   </div>
                 </div>
 
-                {/* CONTENIDO (TABLA) */}
+                {/* CONTENIDO (TABLA DENSA) */}
                 {isExpanded && (
-                  <div className="border-t border-jengibre-border bg-[#fdfcfa] overflow-x-auto p-4 animate-in slide-in-from-top-2">
-                    <table className="w-full text-left border-collapse whitespace-nowrap text-sm bg-white border border-gray-200 rounded-lg overflow-hidden shadow-sm">
+                  <div className="border-t border-jengibre-border bg-[#fdfcfa] overflow-x-auto p-3 sm:p-4 animate-in slide-in-from-top-2">
+                    <table className="w-full text-left border-collapse text-xs bg-white border border-gray-200 rounded-lg overflow-hidden shadow-sm">
                       <thead>
-                        <tr className="bg-gray-50 text-gray-700 border-b border-gray-200 font-bold text-[11px] uppercase tracking-wider">
-                          <th className="px-3 py-3 border-r border-gray-200 text-center w-20">Cuota</th>
-                          <th className="px-3 py-3 border-r border-gray-200 text-center w-32">Mes</th>
-                          <th className="px-3 py-3 border-r border-gray-200 text-right w-32">Monto Base</th>
-                          <th className="px-3 py-3 border-r border-gray-200 text-center w-24">Inflación</th>
-                          <th className="px-3 py-3 border-r border-gray-200 text-right w-36 bg-jengibre-cream/30">Monto Final</th>
-                          <th className="px-3 py-3 border-r border-gray-200">Factura a nombre de</th>
-                          <th className="px-3 py-3 border-r border-gray-200">CUIT Resp.</th>
-                          <th className="px-3 py-3 border-r border-gray-200 min-w-[200px]">Descripción / Concepto</th>
-                          <th className="px-3 py-3 border-r border-gray-200 text-center w-36">Estado</th>
-                          <th className="px-3 py-3 text-center w-28 bg-gray-50">Acciones</th>
+                        <tr className="bg-gray-50 text-gray-700 border-b border-gray-200 font-bold uppercase tracking-wider text-[10px]">
+                          <th className="px-2 py-2 border-r border-gray-200 text-center w-16">Cuota</th>
+                          <th className="px-2 py-2 border-r border-gray-200 text-center w-24">Mes</th>
+                          <th className="px-2 py-2 border-r border-gray-200 text-left w-32">Período</th>
+                          <th className="px-2 py-2 border-r border-gray-200 text-right w-28">Montos</th>
+                          <th className="px-2 py-2 border-r border-gray-200 w-32">Facturar a</th>
+                          <th className="px-2 py-2 border-r border-gray-200 min-w-[120px]">Concepto</th>
+                          <th className="px-2 py-2 border-r border-gray-200 text-center w-20">Link</th>
+                          <th className="px-2 py-2 border-r border-gray-200 text-center min-w-[130px]">Estado</th>
+                          <th className="px-2 py-2 text-center w-24 bg-gray-50">Acciones</th>
                         </tr>
                       </thead>
                       <tbody>
@@ -362,37 +420,60 @@ export default function Facturacion() {
                           const isEditing = editingId === row.id;
                           const mesDate = new Date(row.mes + 'T12:00:00Z');
                           const mesNombre = mesDate.toLocaleDateString('es-AR', { month: 'short', year: 'numeric' });
+                          const descData = parseDescripcion(row.descripcion);
                           
                           return (
                             <tr key={row.id} className="border-b border-gray-100 hover:bg-gray-50/50">
-                              <td className="px-3 py-2.5 font-bold text-center border-r border-gray-100">{row.cuota}</td>
-                              <td className="px-3 py-2.5 text-center capitalize border-r border-gray-100 font-medium">{mesNombre}</td>
+                              <td className="px-2 py-2 font-bold text-center border-r border-gray-100">{row.cuota}</td>
+                              <td className="px-2 py-2 text-center capitalize border-r border-gray-100 font-medium whitespace-nowrap">{mesNombre}</td>
                               
                               {/* EDICIÓN EN LÍNEA */}
                               {isEditing ? (
                                 <>
-                                  <td className="px-2 py-1 border-r border-gray-100"><input type="number" className="w-full border border-blue-300 p-1.5 text-right text-xs rounded outline-none" value={editData.monto_base} onChange={e => setEditData({...editData, monto_base: e.target.value})} /></td>
-                                  <td className="px-2 py-1 border-r border-gray-100"><input type="number" className="w-full border border-blue-300 p-1.5 text-center text-xs rounded outline-none" value={editData.porcentaje_inflacion} onChange={e => setEditData({...editData, porcentaje_inflacion: e.target.value})} /></td>
-                                  <td className="px-3 py-2.5 text-right font-bold text-gray-400 border-r border-gray-100 bg-gray-50 italic">Automático</td>
-                                  <td className="px-2 py-1 border-r border-gray-100"><input className="w-full border border-blue-300 p-1.5 text-xs rounded outline-none" value={editData.responsable_afip} onChange={e => setEditData({...editData, responsable_afip: e.target.value})} /></td>
-                                  <td className="px-2 py-1 border-r border-gray-100"><input className="w-full border border-blue-300 p-1.5 text-xs rounded outline-none font-mono" value={editData.cuit_responsable} onChange={e => setEditData({...editData, cuit_responsable: e.target.value})} /></td>
-                                  <td className="px-2 py-1 border-r border-gray-100"><input className="w-full border border-blue-300 p-1.5 text-xs rounded outline-none" value={editData.descripcion} onChange={e => setEditData({...editData, descripcion: e.target.value})} /></td>
+                                  <td className="px-2 py-1 border-r border-gray-100">
+                                    <input className="w-full text-[11px] p-1 border border-blue-300 rounded outline-none" placeholder="Período" value={editData.periodo} onChange={e => setEditData({...editData, periodo: e.target.value})} />
+                                  </td>
+                                  <td className="px-2 py-1 border-r border-gray-100">
+                                    <input type="number" className="w-full border border-blue-300 p-1 mb-1 text-right text-[11px] rounded outline-none" placeholder="Base" value={editData.monto_base} onChange={e => setEditData({...editData, monto_base: e.target.value})} />
+                                    <input type="number" className="w-full border border-blue-300 p-1 text-center text-[11px] rounded outline-none" placeholder="% Inf." value={editData.porcentaje_inflacion} onChange={e => setEditData({...editData, porcentaje_inflacion: e.target.value})} />
+                                  </td>
+                                  <td className="px-2 py-1 border-r border-gray-100">
+                                    <input className="w-full border border-blue-300 p-1 mb-1 text-[11px] rounded outline-none" placeholder="Nombre" value={editData.responsable_afip} onChange={e => setEditData({...editData, responsable_afip: e.target.value})} />
+                                    <input className="w-full border border-blue-300 p-1 text-[11px] rounded outline-none font-mono" placeholder="CUIT" value={editData.cuit_responsable} onChange={e => setEditData({...editData, cuit_responsable: e.target.value})} />
+                                  </td>
+                                  <td className="px-2 py-1 border-r border-gray-100">
+                                    <input className="w-full border border-blue-300 p-1 text-[11px] rounded outline-none" placeholder="Concepto" value={editData.texto} onChange={e => setEditData({...editData, texto: e.target.value})} />
+                                  </td>
+                                  <td className="px-2 py-1 border-r border-gray-100">
+                                    <input className="w-full border border-blue-300 p-1 text-[11px] rounded outline-none" placeholder="https://" value={editData.link} onChange={e => setEditData({...editData, link: e.target.value})} />
+                                  </td>
                                 </>
                               ) : (
                                 <>
-                                  <td className="px-3 py-2.5 text-right font-mono text-gray-700 border-r border-gray-100">{formatARS(row.monto_base)}</td>
-                                  <td className="px-3 py-2.5 text-center font-bold border-r border-gray-100 text-blue-700">{row.porcentaje_inflacion > 0 ? `+${row.porcentaje_inflacion}%` : '-'}</td>
-                                  <td className="px-3 py-2.5 text-right font-mono font-bold border-r border-gray-100 bg-jengibre-cream/20 text-gray-900">{formatARS(row.monto_final || row.monto_base)}</td>
-                                  <td className="px-3 py-2.5 text-gray-700 border-r border-gray-100">{row.responsable_afip || '-'}</td>
-                                  <td className="px-3 py-2.5 font-mono text-gray-500 border-r border-gray-100 text-xs">{row.cuit_responsable || '-'}</td>
-                                  <td className="px-3 py-2.5 text-gray-600 border-r border-gray-100 truncate max-w-[250px]" title={row.descripcion}>{row.descripcion || '-'}</td>
+                                  <td className="px-2 py-2 border-r border-gray-100 text-gray-600 text-[11px] leading-tight max-w-[120px] truncate" title={descData.periodo}>{descData.periodo || '-'}</td>
+                                  <td className="px-2 py-2 text-right border-r border-gray-100 whitespace-nowrap">
+                                    <div className="font-mono font-bold text-jengibre-dark text-[13px]">{formatARS(row.monto_final || row.monto_base)}</div>
+                                    <div className="text-[10px] text-gray-400 font-mono mt-0.5" title={`Inflación: ${row.porcentaje_inflacion}%`}>Base: {formatARS(row.monto_base)} {row.porcentaje_inflacion > 0 && `(+${row.porcentaje_inflacion}%)`}</div>
+                                  </td>
+                                  <td className="px-2 py-2 border-r border-gray-100 max-w-[130px] truncate">
+                                    <div className="font-medium text-gray-800 truncate" title={row.responsable_afip}>{row.responsable_afip || '-'}</div>
+                                    <div className="text-[10px] text-gray-500 font-mono mt-0.5 truncate" title={row.cuit_responsable}>{row.cuit_responsable}</div>
+                                  </td>
+                                  <td className="px-2 py-2 border-r border-gray-100 text-gray-600 text-[11px] leading-tight max-w-[140px] truncate" title={descData.texto}>{descData.texto || '-'}</td>
+                                  <td className="px-2 py-2 border-r border-gray-100 text-center">
+                                    {descData.link ? (
+                                      <a href={descData.link} target="_blank" rel="noreferrer" className="text-blue-600 hover:text-blue-800 hover:underline font-bold text-[10px] bg-blue-50 px-2 py-1 rounded inline-flex items-center gap-1 truncate max-w-[80px]" title={descData.link}><LinkIcon size={10} /> Link</a>
+                                    ) : (
+                                      <span className="text-gray-400 text-[10px] italic">Sin link</span>
+                                    )}
+                                  </td>
                                 </>
                               )}
 
                               {/* SELECTOR DE ESTADO */}
-                              <td className="px-3 py-2.5 border-r border-gray-100 text-center">
+                              <td className="px-2 py-2 border-r border-gray-100 text-center">
                                 <select 
-                                  className={`text-xs font-bold rounded px-2 py-1.5 outline-none cursor-pointer border w-full text-center appearance-none ${
+                                  className={`text-[11px] font-bold rounded px-1 py-1.5 outline-none cursor-pointer border w-full text-center appearance-none ${
                                     row.estado === 'pagado' ? 'bg-green-100 text-green-800 border-green-200' :
                                     row.estado === 'enviada' ? 'bg-amber-100 text-amber-800 border-amber-200' :
                                     'bg-gray-100 text-gray-600 border-gray-200'
@@ -407,17 +488,17 @@ export default function Facturacion() {
                               </td>
 
                               {/* ACCIONES */}
-                              <td className="px-3 py-2.5">
-                                <div className="flex items-center justify-center gap-2">
+                              <td className="px-2 py-2">
+                                <div className="flex items-center justify-center gap-1">
                                   {isEditing ? (
-                                    <button onClick={saveEditing} className="p-1.5 bg-green-100 text-green-700 rounded shadow-sm hover:bg-green-200" title="Guardar"><Save size={16} /></button>
+                                    <button onClick={saveEditing} className="p-1.5 bg-green-100 text-green-700 rounded shadow-sm hover:bg-green-200" title="Guardar"><Save size={14} /></button>
                                   ) : (
                                     <>
                                       <button onClick={() => openWpModal(row)} className="p-1.5 text-green-600 bg-green-50 hover:bg-green-100 rounded border border-green-100" title="Solicitar a contadora por WhatsApp">
-                                        <MessageCircle size={16} />
+                                        <MessageCircle size={14} />
                                       </button>
-                                      <button onClick={() => startEditing(row)} className="p-1.5 text-gray-400 hover:text-blue-600" title="Editar cuota"><Edit2 size={16} /></button>
-                                      <button onClick={() => { if(confirm('¿Eliminar esta cuota?')) deleteMutation.mutate(row.id); }} className="p-1.5 text-gray-400 hover:text-red-600" title="Eliminar"><Trash2 size={16} /></button>
+                                      <button onClick={() => startEditing(row)} className="p-1.5 text-gray-400 hover:text-blue-600" title="Editar cuota"><Edit2 size={14} /></button>
+                                      <button onClick={() => { if(confirm('¿Eliminar esta cuota?')) deleteMutation.mutate(row.id); }} className="p-1.5 text-gray-400 hover:text-red-600" title="Eliminar"><Trash2 size={14} /></button>
                                     </>
                                   )}
                                 </div>
