@@ -232,6 +232,8 @@ export default function Facturacion() {
     setEditingId(row.id);
     const desc = parseDescripcion(row.descripcion);
     setEditData({
+      cuota: row.cuota || '',
+      mes: row.mes || '',
       monto_base: row.monto_base,
       porcentaje_inflacion: row.porcentaje_inflacion || 0,
       responsable_afip: row.responsable_afip || '',
@@ -255,6 +257,8 @@ export default function Facturacion() {
     
     saveRowMutation.mutate({ 
       id: editingId, 
+      cuota: editData.cuota,
+      mes: editData.mes,
       monto_base: editData.monto_base,
       porcentaje_inflacion: editData.porcentaje_inflacion,
       responsable_afip: editData.responsable_afip,
@@ -474,12 +478,16 @@ export default function Facturacion() {
                           
                           return (
                             <tr key={row.id} className="border-b border-gray-100 hover:bg-gray-50/50">
-                              <td className="px-2 py-2 font-bold text-center border-r border-gray-100">{row.cuota}</td>
-                              <td className="px-2 py-2 text-center capitalize border-r border-gray-100 font-medium whitespace-nowrap">{mesNombre}</td>
                               
                               {/* EDICIÓN EN LÍNEA */}
                               {isEditing ? (
                                 <>
+                                  <td className="px-2 py-1 border-r border-gray-100">
+                                    <input className="w-full text-[11px] p-1 border border-blue-300 rounded outline-none text-center font-bold" value={editData.cuota} onChange={e => setEditData({...editData, cuota: e.target.value})} />
+                                  </td>
+                                  <td className="px-2 py-1 border-r border-gray-100">
+                                    <input type="date" className="w-full text-[11px] p-1 border border-blue-300 rounded outline-none text-center" value={editData.mes} onChange={e => setEditData({...editData, mes: e.target.value})} />
+                                  </td>
                                   <td className="px-2 py-1 border-r border-gray-100">
                                     <input className="w-full text-[11px] p-1 border border-blue-300 rounded outline-none" placeholder="Período" value={editData.periodo} onChange={e => setEditData({...editData, periodo: e.target.value})} />
                                   </td>
@@ -506,6 +514,8 @@ export default function Facturacion() {
                                 </>
                               ) : (
                                 <>
+                                  <td className="px-2 py-2 font-bold text-center border-r border-gray-100">{row.cuota}</td>
+                                  <td className="px-2 py-2 text-center capitalize border-r border-gray-100 font-medium whitespace-nowrap">{mesNombre}</td>
                                   <td className="px-2 py-2 border-r border-gray-100 text-gray-600 text-[11px] leading-tight max-w-[120px] truncate" title={descData.periodo}>{descData.periodo || '-'}</td>
                                   
                                   <td className="px-2 py-2 text-right border-r border-gray-100 whitespace-nowrap">
