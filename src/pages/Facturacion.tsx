@@ -6,9 +6,9 @@ import { Plus, Edit2, Trash2, MessageCircle, Save, ChevronDown, ChevronRight, Bu
 import { formatARS } from '@/lib/utils';
 import { showSuccess, showError } from '@/utils/toast';
 
-// Helper para guardar todo en JSON en la descripción sin tocar la base de datos
+// Helper para guardar todo en JSON
 const parseDescripcion = (descStr: string | null) => {
-  if (!descStr) return { texto: '', periodo: '', link: '', monto_pagado: 0, es_informal: false };
+  if (!descStr) return { texto: '', periodo: '', link: '', monto_pagado: 0, monto_retenido: 0, es_informal: false };
   try {
     const parsed = JSON.parse(descStr);
     if (parsed && typeof parsed === 'object') {
@@ -17,13 +17,14 @@ const parseDescripcion = (descStr: string | null) => {
         periodo: parsed.periodo || '',
         link: parsed.link || '',
         monto_pagado: Number(parsed.monto_pagado) || 0,
+        monto_retenido: Number(parsed.monto_retenido) || 0,
         es_informal: Boolean(parsed.es_informal) || false
       };
     }
   } catch (e) {
     // Si no es JSON, es texto plano viejo
   }
-  return { texto: descStr || '', periodo: '', link: '', monto_pagado: 0, es_informal: false };
+  return { texto: descStr || '', periodo: '', link: '', monto_pagado: 0, monto_retenido: 0, es_informal: false };
 };
 
 export default function Facturacion() {
@@ -43,9 +44,9 @@ export default function Facturacion() {
   const [wpModalOpen, setWpModalOpen] = useState(false);
   const [wpData, setWpData] = useState<any>({ row: null, periodo: '', notasExtras: '' });
 
-  // Modal para Registrar Pago Parcial / Informal
+  // Modal para Registrar Pago Parcial / Retenciones / Informal
   const [payModal, setPayModal] = useState<{isOpen: boolean, row: any}>({isOpen: false, row: null});
-  const [payData, setPayData] = useState({ estado_destino: '', monto_pagado: '', es_informal: false });
+  const [payData, setPayData] = useState({ estado_destino: '', monto_pagado: '', monto_retenido: '', es_informal: false });
 
   const { data: facturas, isLoading } = useQuery({
     queryKey: ['facturacion'],
@@ -67,11 +68,19 @@ export default function Facturacion() {
     }
   });
 
+  const updateEstadoMutation = useMutation({
+    mutationFn: async ({ id, estado }: { id: string, estado: string }) => {
+      const { error } = await supabase.from('facturacion').update({ estado }).eq('id', id);
+      if (error) throw error;
+    },
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['facturacion'] }),
+    onError: (err: any) => showError(err.message)
+  });
+
   const saveRowMutation = useMutation({
     mutationFn: async (payload: any) => {
       let dataToSave = { ...payload };
 
-      // Solo recalculamos el monto_final si nos envían el monto_base (para no borrarlo al actualizar solo estados)
       if ('monto_base' in payload) {
         const inflacion = Number(payload.porcentaje_inflacion) || 0;
         const base = Number(payload.monto_base) || 0;
@@ -106,7 +115,7 @@ export default function Facturacion() {
     }
   });
 
-  // Procesamiento de datos para agrupar
+  // Procesamiento de datos
   const groupedFacturas = useMemo(() => {
     if (!facturas) return [];
     
@@ -127,9 +136,9 @@ export default function Facturacion() {
       groups[clientId].totalMonto += montoFinal;
       
       if (row.estado === 'pagado') {
-        groups[clientId].totalPagado += montoFinal;
+        groups[clientId].totalPagado += desc.monto_pagado > 0 ? (desc.monto_pagado + desc.monto_retenido) : montoFinal;
       } else if (row.estado === 'pago_parcial') {
-        groups[clientId].totalPagado += desc.monto_pagado;
+        groups[clientId].totalPagado += (desc.monto_pagado + desc.monto_retenido);
       }
     });
     
@@ -149,14 +158,14 @@ export default function Facturacion() {
       
       setPayData({
         estado_destino: newEstado,
-        monto_pagado: newEstado === 'pagado' ? String(final) : (desc.monto_pagado > 0 ? String(desc.monto_pagado) : ''),
+        monto_pagado: newEstado === 'pagado' && desc.monto_pagado === 0 ? String(final) : (desc.monto_pagado > 0 ? String(desc.monto_pagado) : ''),
+        monto_retenido: desc.monto_retenido > 0 ? String(desc.monto_retenido) : '',
         es_informal: desc.es_informal
       });
       setPayModal({ isOpen: true, row });
     } else {
-      // Si vuelve a por_enviar o enviada, reseteamos el monto pagado a 0
       const desc = parseDescripcion(row.descripcion);
-      const newDesc = JSON.stringify({ ...desc, monto_pagado: 0 });
+      const newDesc = JSON.stringify({ ...desc, monto_pagado: 0, monto_retenido: 0 });
       saveRowMutation.mutate({ id: row.id, estado: newEstado, descripcion: newDesc });
     }
   };
@@ -165,18 +174,23 @@ export default function Facturacion() {
     const { row } = payModal;
     const desc = parseDescripcion(row.descripcion);
     const acumulado = Number(payData.monto_pagado);
+    const retenido = Number(payData.monto_retenido);
     const final = Number(row.monto_final || row.monto_base);
     
     const newDesc = JSON.stringify({
       ...desc,
       monto_pagado: acumulado,
+      monto_retenido: retenido,
       es_informal: payData.es_informal
     });
 
+    const totalCancelado = acumulado + retenido;
     let finalEstado = payData.estado_destino;
-    if (acumulado >= final) finalEstado = 'pagado';
-    else if (acumulado > 0 && acumulado < final) finalEstado = 'pago_parcial';
-    else if (acumulado === 0) finalEstado = 'por_enviar';
+    
+    // Margen de 1 centavo por errores de redondeo
+    if (totalCancelado >= final - 0.01) finalEstado = 'pagado';
+    else if (totalCancelado > 0 && totalCancelado < final) finalEstado = 'pago_parcial';
+    else if (totalCancelado === 0) finalEstado = 'por_enviar';
 
     saveRowMutation.mutate({
       id: row.id,
@@ -185,7 +199,7 @@ export default function Facturacion() {
     });
 
     setPayModal({ isOpen: false, row: null });
-    showSuccess('Pago registrado correctamente');
+    showSuccess('Cobro y retenciones guardados');
   };
 
   const openWpModal = (row: any) => {
@@ -319,7 +333,7 @@ export default function Facturacion() {
         </div>
       )}
 
-      {/* Modal Pago Parcial / Informal */}
+      {/* Modal Pago Parcial / Informal / Retenciones */}
       {payModal.isOpen && (
         <div className="fixed inset-0 bg-black/50 z-[70] flex items-center justify-center p-4">
           <div className="bg-white rounded-2xl w-full max-w-sm p-6 shadow-xl animate-in zoom-in-95">
@@ -328,15 +342,15 @@ export default function Facturacion() {
             </h2>
             
             <div className="bg-gray-50 p-3 rounded-lg mb-4 text-sm text-center border border-gray-100">
-              Monto Total de Cuota:<br/>
+              Monto a Cancelar (Cuota Completa):<br/>
               <span className="text-2xl font-mono font-bold text-gray-900">
                 {formatARS(payModal.row?.monto_final || payModal.row?.monto_base)}
               </span>
             </div>
 
-            <div className="space-y-5">
+            <div className="space-y-4">
               <div>
-                <label className="block text-sm font-bold text-gray-700 mb-1">Monto Acumulado (Ya cobrado)</label>
+                <label className="block text-sm font-bold text-gray-700 mb-1">Monto Cobrado (Entró al banco)</label>
                 <div className="relative">
                   <span className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-500 font-bold">$</span>
                   <input 
@@ -346,7 +360,21 @@ export default function Facturacion() {
                     onChange={e => setPayData({...payData, monto_pagado: e.target.value})}
                   />
                 </div>
-                <p className="text-xs text-gray-400 mt-1">Escribí la plata total que ya entró por esta cuota.</p>
+              </div>
+
+              <div>
+                <label className="block text-sm font-bold text-gray-700 mb-1 text-red-600">Retenciones (IVA, Ganancias, IIBB)</label>
+                <div className="relative">
+                  <span className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-500 font-bold">$</span>
+                  <input 
+                    type="number" step="0.01" min="0"
+                    className="w-full border border-gray-300 rounded-lg p-2.5 pl-8 outline-none focus:ring-2 focus:ring-red-400 font-mono text-lg bg-red-50/30" 
+                    value={payData.monto_retenido} 
+                    onChange={e => setPayData({...payData, monto_retenido: e.target.value})}
+                    placeholder="0.00"
+                  />
+                </div>
+                <p className="text-xs text-gray-500 mt-1 leading-tight">Plata que el cliente descontó en concepto de impuestos. Suma como cancelado pero no entró al banco.</p>
               </div>
 
               <div className="flex items-center gap-3 bg-amber-50 p-3 rounded-lg border border-amber-100">
@@ -357,7 +385,7 @@ export default function Facturacion() {
                   onChange={e => setPayData({...payData, es_informal: e.target.checked})}
                 />
                 <label htmlFor="informal_cobro" className="text-sm font-bold text-amber-800 cursor-pointer select-none">
-                  Cobro Informal (Sin Factura)
+                  Cobro Informal (Efectivo/Sin Factura)
                 </label>
               </div>
             </div>
@@ -461,7 +489,7 @@ export default function Facturacion() {
                           <th className="px-2 py-2 border-r border-gray-200 text-center w-16">Cuota</th>
                           <th className="px-2 py-2 border-r border-gray-200 text-center w-24">Mes</th>
                           <th className="px-2 py-2 border-r border-gray-200 text-left w-32">Período</th>
-                          <th className="px-2 py-2 border-r border-gray-200 text-right w-28">Montos</th>
+                          <th className="px-2 py-2 border-r border-gray-200 text-right w-32">Montos</th>
                           <th className="px-2 py-2 border-r border-gray-200 w-36">Facturar a</th>
                           <th className="px-2 py-2 border-r border-gray-200 min-w-[120px]">Concepto / Link</th>
                           <th className="px-2 py-2 border-r border-gray-200 text-center min-w-[130px]">Estado</th>
@@ -475,6 +503,10 @@ export default function Facturacion() {
                           const mesNombre = mesDate.toLocaleDateString('es-AR', { month: 'short', year: 'numeric' });
                           const descData = parseDescripcion(row.descripcion);
                           const finalMonto = Number(row.monto_final || row.monto_base);
+                          
+                          // Resta
+                          const sumaCancelada = descData.monto_pagado + descData.monto_retenido;
+                          const resta = finalMonto - sumaCancelada;
                           
                           return (
                             <tr key={row.id} className="border-b border-gray-100 hover:bg-gray-50/50">
@@ -492,8 +524,8 @@ export default function Facturacion() {
                                     <input className="w-full text-[11px] p-1 border border-blue-300 rounded outline-none" placeholder="Período" value={editData.periodo} onChange={e => setEditData({...editData, periodo: e.target.value})} />
                                   </td>
                                   <td className="px-2 py-1 border-r border-gray-100">
-                                    <input type="number" className="w-full border border-blue-300 p-1 mb-1 text-right text-[11px] rounded outline-none" placeholder="Base" value={editData.monto_base} onChange={e => setEditData({...editData, monto_base: e.target.value})} />
-                                    <input type="number" className="w-full border border-blue-300 p-1 text-center text-[11px] rounded outline-none" placeholder="% Inf." value={editData.porcentaje_inflacion} onChange={e => setEditData({...editData, porcentaje_inflacion: e.target.value})} />
+                                    <input type="number" step="0.01" className="w-full border border-blue-300 p-1 mb-1 text-right text-[11px] rounded outline-none" placeholder="Base" value={editData.monto_base} onChange={e => setEditData({...editData, monto_base: e.target.value})} />
+                                    <input type="number" step="0.01" className="w-full border border-blue-300 p-1 text-center text-[11px] rounded outline-none" placeholder="% Inf." value={editData.porcentaje_inflacion} onChange={e => setEditData({...editData, porcentaje_inflacion: e.target.value})} />
                                   </td>
                                   <td className="px-2 py-1 border-r border-gray-100 bg-amber-50/30">
                                     <div className="flex items-center gap-1 mb-1 bg-amber-100 p-1 rounded">
@@ -520,8 +552,20 @@ export default function Facturacion() {
                                   
                                   <td className="px-2 py-2 text-right border-r border-gray-100 whitespace-nowrap">
                                     <div className="font-mono font-bold text-jengibre-dark text-[13px]">{formatARS(finalMonto)}</div>
-                                    {row.estado === 'pago_parcial' && descData.monto_pagado > 0 ? (
-                                      <div className="text-[10px] text-amber-600 font-bold mt-0.5">Resta: {formatARS(finalMonto - descData.monto_pagado)}</div>
+                                    
+                                    {/* Muestra desglose de cobro/retención */}
+                                    {(descData.monto_pagado > 0 || descData.monto_retenido > 0) ? (
+                                      <div className="text-[10px] mt-1 space-y-0.5">
+                                        {descData.monto_pagado > 0 && (
+                                          <p className="text-gray-600 font-medium">Cobrado: <span className="font-mono text-gray-900">{formatARS(descData.monto_pagado)}</span></p>
+                                        )}
+                                        {descData.monto_retenido > 0 && (
+                                          <p className="text-red-500 font-medium">Retenido: <span className="font-mono">{formatARS(descData.monto_retenido)}</span></p>
+                                        )}
+                                        {resta > 0.01 && (
+                                          <p className="text-amber-600 font-bold border-t border-amber-100 pt-0.5 mt-0.5">Resta: <span className="font-mono">{formatARS(resta)}</span></p>
+                                        )}
+                                      </div>
                                     ) : (
                                       <div className="text-[10px] text-gray-400 font-mono mt-0.5">Base: {formatARS(row.monto_base)} {row.porcentaje_inflacion > 0 && `(+${row.porcentaje_inflacion}%)`}</div>
                                     )}

@@ -1,6 +1,6 @@
 import React, { useMemo } from 'react';
 import { formatARS } from '@/lib/utils';
-import { Plus, FileText, RefreshCw, AlertCircle, CheckCircle2 } from 'lucide-react';
+import { Plus, FileText, RefreshCw, AlertCircle, CheckCircle2, Landmark } from 'lucide-react';
 import { Link } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
 import { supabase } from '@/integrations/supabase/client';
@@ -77,6 +77,24 @@ export default function Dashboard() {
     }
   });
 
+  const { data: compras, isLoading: isLoadingComp } = useQuery({
+    queryKey: ['compras_dashboard'],
+    queryFn: async () => {
+      const { data, error } = await supabase.from('compras').select('*');
+      if (error) throw error;
+      return data;
+    }
+  });
+
+  const { data: facturas, isLoading: isLoadingFact } = useQuery({
+    queryKey: ['facturas_dashboard'],
+    queryFn: async () => {
+      const { data, error } = await supabase.from('facturacion').select('mes, descripcion, estado');
+      if (error) throw error;
+      return data;
+    }
+  });
+
   // Procesamiento matemático de todos los datos reales
   const stats = useMemo(() => {
     if (!movimientos || !clientes || !equipo) return null;
@@ -85,24 +103,62 @@ export default function Dashboard() {
     const saldosCalc: Record<string, number> = {};
     let ingresosMes = 0;
     let costosMes = 0;
+    
+    // Variables para el cálculo de IVA a pagar a AFIP
+    let ivaVentas = 0;
+    let ivaCompras = 0;
+    let ivaRetenciones = 0;
 
     const now = new Date();
     const currentMonthPrefix = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
 
+    // Recorremos movimientos (caja real)
     movimientos.forEach(m => {
       const monto = Number(m.monto);
+      
       // Saldos globales históricos
       if (!saldosCalc[m.cuenta]) saldosCalc[m.cuenta] = 0;
       saldosCalc[m.cuenta] += m.tipo === 'ingreso' ? monto : -monto;
 
       // Movimientos exclusivos del mes en curso
       if (m.fecha.startsWith(currentMonthPrefix)) {
-        if (m.tipo === 'ingreso') ingresosMes += monto;
-        else costosMes += monto;
+        if (m.tipo === 'ingreso') {
+          ingresosMes += monto;
+          // Si el ingreso de este mes tildaron que tenía IVA, sacamos el 21% matemático
+          if (m.tiene_iva) {
+            ivaVentas += (monto / 1.21) * 0.21;
+          }
+        } else {
+          costosMes += monto;
+        }
       }
     });
 
     const resultadoMes = ingresosMes - costosMes;
+
+    // Calculamos crédito fiscal del mes (compras)
+    if (compras) {
+      compras.forEach(c => {
+        if (c.fecha.startsWith(currentMonthPrefix)) {
+          ivaCompras += Number(c.iva_credito || 0);
+        }
+      });
+    }
+
+    // Calculamos retenciones del mes (facturación pagada)
+    if (facturas) {
+      facturas.forEach(f => {
+        // En facturación tomamos como filtro el "mes" de la factura para simplicidad del dashboard
+        if (f.mes && f.mes.startsWith(currentMonthPrefix)) {
+          try {
+            const desc = JSON.parse(f.descripcion || '{}');
+            if (desc.monto_retenido) ivaRetenciones += Number(desc.monto_retenido);
+          } catch (e) {}
+        }
+      });
+    }
+
+    const ivaEstimadoAPagar = ivaVentas - ivaCompras - ivaRetenciones;
 
     // 2. Costo del Equipo Activo
     let costoEquipo = 0;
@@ -142,15 +198,21 @@ export default function Dashboard() {
       }
     });
 
-    // 5. Fondo de Emergencia (buscamos alguna cuenta que se llame 'Fondo')
+    // 5. Fondo de Emergencia
     const cuentaFondo = Object.keys(saldosCalc).find(k => k.toLowerCase().includes('fondo'));
     const saldoFondo = cuentaFondo ? saldosCalc[cuentaFondo] : 0;
-    const targetFondo = costosMes > 0 ? costosMes * 6 : 1000000; // Objetivo: 6 meses de costos
+    const targetFondo = costosMes > 0 ? costosMes * 6 : 1000000;
     const fondoRatio = (saldoFondo / targetFondo) * 100;
 
     return {
       saldos: saldosCalc,
       mesActual: { ingresos: ingresosMes, costos: costosMes, resultado: resultadoMes },
+      iva: {
+        ventas: ivaVentas,
+        compras: ivaCompras,
+        retenciones: ivaRetenciones,
+        aPagar: ivaEstimadoAPagar
+      },
       kpis: {
         ratioEquipo,
         margenNeto,
@@ -160,9 +222,9 @@ export default function Dashboard() {
         saldoFondo
       }
     };
-  }, [movimientos, clientes, equipo]);
+  }, [movimientos, clientes, equipo, compras, facturas]);
 
-  const isLoading = isLoadingMov || isLoadingCli || isLoadingEq || isLoadingRec;
+  const isLoading = isLoadingMov || isLoadingCli || isLoadingEq || isLoadingRec || isLoadingComp || isLoadingFact;
 
   if (isLoading || !stats) {
     return (
@@ -203,7 +265,40 @@ export default function Dashboard() {
         </div>
       </header>
 
-      {/* SALDOS POR CUENTA (DINÁMICO) */}
+      {/* POSICIÓN DE IVA (NUEVO) */}
+      <section className="bg-white border border-jengibre-border p-6 rounded-2xl shadow-sm">
+        <h2 className="text-lg font-display font-bold mb-4 text-gray-700 flex items-center gap-2">
+          <Landmark size={20} className="text-blue-600" />
+          Posición de IVA Estimada (Mes Actual)
+        </h2>
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+          <div>
+             <p className="text-sm text-gray-500 font-medium">IVA Facturado (+)</p>
+             <p className="text-xl font-mono font-bold text-gray-900 mt-1">{formatARS(stats.iva.ventas)}</p>
+             <p className="text-[10px] text-gray-400 mt-1 leading-tight">De lo cobrado en caja con IVA tildado</p>
+          </div>
+          <div>
+             <p className="text-sm text-gray-500 font-medium">Crédito Compras (-)</p>
+             <p className="text-xl font-mono font-bold text-green-600 mt-1">{formatARS(stats.iva.compras)}</p>
+             <p className="text-[10px] text-gray-400 mt-1 leading-tight">Cargado en pestaña Compras</p>
+          </div>
+          <div>
+             <p className="text-sm text-gray-500 font-medium">Retenciones (-)</p>
+             <p className="text-xl font-mono font-bold text-amber-600 mt-1">{formatARS(stats.iva.retenciones)}</p>
+             <p className="text-[10px] text-gray-400 mt-1 leading-tight">Registrado en cobros de Facturación</p>
+          </div>
+          <div className="bg-blue-50 p-4 rounded-xl border border-blue-100 flex flex-col justify-center">
+             <p className="text-sm text-blue-800 font-bold uppercase tracking-wider">
+               {stats.iva.aPagar < 0 ? 'Saldo a favor AFIP' : 'A pagar a AFIP'}
+             </p>
+             <p className="text-2xl font-mono font-bold text-blue-900 mt-1">
+               {formatARS(Math.abs(stats.iva.aPagar))}
+             </p>
+          </div>
+        </div>
+      </section>
+
+      {/* SALDOS POR CUENTA */}
       <section>
         <h2 className="text-lg font-display font-bold mb-4 text-gray-700">Principales Cuentas</h2>
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
