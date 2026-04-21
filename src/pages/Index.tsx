@@ -104,7 +104,7 @@ export default function Dashboard() {
     let ingresosMes = 0;
     let costosMes = 0;
     
-    // Variables para el cálculo de IVA a pagar a AFIP
+    // Variables para el cálculo de IVA (Global / Acumulado para que no se pierdan)
     let ivaVentas = 0;
     let ivaCompras = 0;
     let ivaRetenciones = 0;
@@ -124,37 +124,34 @@ export default function Dashboard() {
       if (m.fecha.startsWith(currentMonthPrefix)) {
         if (m.tipo === 'ingreso') {
           ingresosMes += monto;
-          // Si el ingreso de este mes tildaron que tenía IVA, sacamos el 21% matemático
-          if (m.tiene_iva) {
-            ivaVentas += (monto / 1.21) * 0.21;
-          }
         } else {
           costosMes += monto;
         }
+      }
+
+      // Sumamos el IVA de caja globalmente (histórico)
+      if (m.tipo === 'ingreso' && m.tiene_iva) {
+        ivaVentas += (monto / 1.21) * 0.21;
       }
     });
 
     const resultadoMes = ingresosMes - costosMes;
 
-    // Calculamos crédito fiscal del mes (compras)
+    // Crédito fiscal de todas las compras históricas (Acumulado)
     if (compras) {
       compras.forEach(c => {
-        if (c.fecha.startsWith(currentMonthPrefix)) {
-          ivaCompras += Number(c.iva_credito || 0);
-        }
+        ivaCompras += Number(c.iva_credito || 0);
       });
     }
 
-    // Calculamos retenciones del mes (facturación pagada)
+    // Calculamos retenciones y el "IVA a Guardar" reportado explícitamente en Facturación
     if (facturas) {
       facturas.forEach(f => {
-        // En facturación tomamos como filtro el "mes" de la factura para simplicidad del dashboard
-        if (f.mes && f.mes.startsWith(currentMonthPrefix)) {
-          try {
-            const desc = JSON.parse(f.descripcion || '{}');
-            if (desc.monto_retenido) ivaRetenciones += Number(desc.monto_retenido);
-          } catch (e) {}
-        }
+        try {
+          const desc = JSON.parse(f.descripcion || '{}');
+          if (desc.retencion_iva) ivaRetenciones += Number(desc.retencion_iva);
+          if (desc.iva_a_guardar) ivaVentas += Number(desc.iva_a_guardar); // Usamos lo que indicaron guardar explícitamente
+        } catch (e) {}
       });
     }
 
@@ -265,17 +262,17 @@ export default function Dashboard() {
         </div>
       </header>
 
-      {/* POSICIÓN DE IVA (NUEVO) */}
+      {/* POSICIÓN DE IVA GLOBAL/ACUMULADA */}
       <section className="bg-white border border-jengibre-border p-6 rounded-2xl shadow-sm">
         <h2 className="text-lg font-display font-bold mb-4 text-gray-700 flex items-center gap-2">
           <Landmark size={20} className="text-blue-600" />
-          Posición de IVA Estimada (Mes Actual)
+          Posición de IVA Acumulada
         </h2>
         <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
           <div>
              <p className="text-sm text-gray-500 font-medium">IVA Facturado (+)</p>
              <p className="text-xl font-mono font-bold text-gray-900 mt-1">{formatARS(stats.iva.ventas)}</p>
-             <p className="text-[10px] text-gray-400 mt-1 leading-tight">De lo cobrado en caja con IVA tildado</p>
+             <p className="text-[10px] text-gray-400 mt-1 leading-tight">IVA declarado en Caja y Facturación</p>
           </div>
           <div>
              <p className="text-sm text-gray-500 font-medium">Crédito Compras (-)</p>
@@ -283,13 +280,13 @@ export default function Dashboard() {
              <p className="text-[10px] text-gray-400 mt-1 leading-tight">Cargado en pestaña Compras</p>
           </div>
           <div>
-             <p className="text-sm text-gray-500 font-medium">Retenciones (-)</p>
+             <p className="text-sm text-gray-500 font-medium">Retención de IVA (-)</p>
              <p className="text-xl font-mono font-bold text-amber-600 mt-1">{formatARS(stats.iva.retenciones)}</p>
              <p className="text-[10px] text-gray-400 mt-1 leading-tight">Registrado en cobros de Facturación</p>
           </div>
           <div className="bg-blue-50 p-4 rounded-xl border border-blue-100 flex flex-col justify-center">
              <p className="text-sm text-blue-800 font-bold uppercase tracking-wider">
-               {stats.iva.aPagar < 0 ? 'Saldo a favor AFIP' : 'A pagar a AFIP'}
+               {stats.iva.aPagar <= 0 ? 'Saldo a favor AFIP' : 'A pagar a AFIP'}
              </p>
              <p className="text-2xl font-mono font-bold text-blue-900 mt-1">
                {formatARS(Math.abs(stats.iva.aPagar))}

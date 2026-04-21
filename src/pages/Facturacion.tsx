@@ -8,7 +8,7 @@ import { showSuccess, showError } from '@/utils/toast';
 
 // Helper para guardar todo en JSON
 const parseDescripcion = (descStr: string | null) => {
-  if (!descStr) return { texto: '', periodo: '', link: '', monto_pagado: 0, monto_retenido: 0, es_informal: false };
+  if (!descStr) return { texto: '', periodo: '', link: '', monto_pagado: 0, retencion_ganancias: 0, retencion_iva: 0, iva_a_guardar: 0, monto_retenido: 0, es_informal: false };
   try {
     const parsed = JSON.parse(descStr);
     if (parsed && typeof parsed === 'object') {
@@ -17,14 +17,17 @@ const parseDescripcion = (descStr: string | null) => {
         periodo: parsed.periodo || '',
         link: parsed.link || '',
         monto_pagado: Number(parsed.monto_pagado) || 0,
-        monto_retenido: Number(parsed.monto_retenido) || 0,
+        retencion_ganancias: Number(parsed.retencion_ganancias) || 0,
+        retencion_iva: Number(parsed.retencion_iva) || 0,
+        iva_a_guardar: Number(parsed.iva_a_guardar) || 0,
+        monto_retenido: Number(parsed.monto_retenido) || 0, // Legacy
         es_informal: Boolean(parsed.es_informal) || false
       };
     }
   } catch (e) {
     // Si no es JSON, es texto plano viejo
   }
-  return { texto: descStr || '', periodo: '', link: '', monto_pagado: 0, monto_retenido: 0, es_informal: false };
+  return { texto: descStr || '', periodo: '', link: '', monto_pagado: 0, retencion_ganancias: 0, retencion_iva: 0, iva_a_guardar: 0, monto_retenido: 0, es_informal: false };
 };
 
 export default function Facturacion() {
@@ -46,7 +49,7 @@ export default function Facturacion() {
 
   // Modal para Registrar Pago Parcial / Retenciones / Informal
   const [payModal, setPayModal] = useState<{isOpen: boolean, row: any}>({isOpen: false, row: null});
-  const [payData, setPayData] = useState({ estado_destino: '', monto_pagado: '', monto_retenido: '', es_informal: false });
+  const [payData, setPayData] = useState({ estado_destino: '', monto_pagado: '', retencion_ganancias: '', retencion_iva: '', iva_a_guardar: '', es_informal: false });
 
   const { data: facturas, isLoading } = useQuery({
     queryKey: ['facturacion'],
@@ -136,9 +139,9 @@ export default function Facturacion() {
       groups[clientId].totalMonto += montoFinal;
       
       if (row.estado === 'pagado') {
-        groups[clientId].totalPagado += desc.monto_pagado > 0 ? (desc.monto_pagado + desc.monto_retenido) : montoFinal;
+        groups[clientId].totalPagado += desc.monto_pagado > 0 ? (desc.monto_pagado + desc.retencion_ganancias + desc.retencion_iva + desc.monto_retenido) : montoFinal;
       } else if (row.estado === 'pago_parcial') {
-        groups[clientId].totalPagado += (desc.monto_pagado + desc.monto_retenido);
+        groups[clientId].totalPagado += (desc.monto_pagado + desc.retencion_ganancias + desc.retencion_iva + desc.monto_retenido);
       }
     });
     
@@ -159,13 +162,15 @@ export default function Facturacion() {
       setPayData({
         estado_destino: newEstado,
         monto_pagado: newEstado === 'pagado' && desc.monto_pagado === 0 ? String(final) : (desc.monto_pagado > 0 ? String(desc.monto_pagado) : ''),
-        monto_retenido: desc.monto_retenido > 0 ? String(desc.monto_retenido) : '',
+        retencion_ganancias: desc.retencion_ganancias > 0 ? String(desc.retencion_ganancias) : '',
+        retencion_iva: desc.retencion_iva > 0 ? String(desc.retencion_iva) : '',
+        iva_a_guardar: desc.iva_a_guardar > 0 ? String(desc.iva_a_guardar) : '',
         es_informal: desc.es_informal
       });
       setPayModal({ isOpen: true, row });
     } else {
       const desc = parseDescripcion(row.descripcion);
-      const newDesc = JSON.stringify({ ...desc, monto_pagado: 0, monto_retenido: 0 });
+      const newDesc = JSON.stringify({ ...desc, monto_pagado: 0, retencion_ganancias: 0, retencion_iva: 0, iva_a_guardar: 0, monto_retenido: 0 });
       saveRowMutation.mutate({ id: row.id, estado: newEstado, descripcion: newDesc });
     }
   };
@@ -174,17 +179,23 @@ export default function Facturacion() {
     const { row } = payModal;
     const desc = parseDescripcion(row.descripcion);
     const acumulado = Number(payData.monto_pagado);
-    const retenido = Number(payData.monto_retenido);
+    const retGan = Number(payData.retencion_ganancias);
+    const retIva = Number(payData.retencion_iva);
+    const ivaGuardar = Number(payData.iva_a_guardar);
     const final = Number(row.monto_final || row.monto_base);
     
     const newDesc = JSON.stringify({
       ...desc,
       monto_pagado: acumulado,
-      monto_retenido: retenido,
+      retencion_ganancias: retGan,
+      retencion_iva: retIva,
+      iva_a_guardar: ivaGuardar,
+      monto_retenido: 0, // limpiamos legacy
       es_informal: payData.es_informal
     });
 
-    const totalCancelado = acumulado + retenido;
+    // La factura se considera cancelada por la suma de lo que cobraste + lo que te retuvieron
+    const totalCancelado = acumulado + retGan + retIva;
     let finalEstado = payData.estado_destino;
     
     // Margen de 1 centavo por errores de redondeo
@@ -333,16 +344,16 @@ export default function Facturacion() {
         </div>
       )}
 
-      {/* Modal Pago Parcial / Informal / Retenciones */}
+      {/* Modal Pago Parcial / Retenciones / IVA a Guardar / Informal */}
       {payModal.isOpen && (
         <div className="fixed inset-0 bg-black/50 z-[70] flex items-center justify-center p-4">
-          <div className="bg-white rounded-2xl w-full max-w-sm p-6 shadow-xl animate-in zoom-in-95">
+          <div className="bg-white rounded-2xl w-full max-w-md p-6 shadow-xl animate-in zoom-in-95 max-h-[90vh] overflow-y-auto">
             <h2 className="text-xl font-display font-bold mb-4 text-jengibre-dark flex items-center gap-2">
-              <DollarSign className="text-green-600" /> Registrar Cobro
+              <DollarSign className="text-green-600" /> Registrar Cobro y Retenciones
             </h2>
             
             <div className="bg-gray-50 p-3 rounded-lg mb-4 text-sm text-center border border-gray-100">
-              Monto a Cancelar (Cuota Completa):<br/>
+              Total Facturado (A cancelar):<br/>
               <span className="text-2xl font-mono font-bold text-gray-900">
                 {formatARS(payModal.row?.monto_final || payModal.row?.monto_base)}
               </span>
@@ -355,29 +366,59 @@ export default function Facturacion() {
                   <span className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-500 font-bold">$</span>
                   <input 
                     type="number" step="0.01" min="0" autoFocus
-                    className="w-full border border-gray-300 rounded-lg p-2.5 pl-8 outline-none focus:ring-2 focus:ring-jengibre-primary font-mono text-lg" 
+                    className="w-full border border-gray-300 rounded-lg p-2.5 pl-8 outline-none focus:ring-2 focus:ring-green-500 font-mono text-lg bg-green-50/20" 
                     value={payData.monto_pagado} 
                     onChange={e => setPayData({...payData, monto_pagado: e.target.value})}
                   />
                 </div>
               </div>
 
-              <div>
-                <label className="block text-sm font-bold text-gray-700 mb-1 text-red-600">Retenciones (IVA, Ganancias, IIBB)</label>
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-sm font-bold text-gray-700 mb-1 text-red-600">Retención de Ganancias</label>
+                  <div className="relative">
+                    <span className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-500 font-bold">$</span>
+                    <input 
+                      type="number" step="0.01" min="0"
+                      className="w-full border border-red-200 rounded-lg p-2.5 pl-8 outline-none focus:ring-2 focus:ring-red-400 font-mono text-sm bg-red-50/30" 
+                      value={payData.retencion_ganancias} 
+                      onChange={e => setPayData({...payData, retencion_ganancias: e.target.value})}
+                      placeholder="0.00"
+                    />
+                  </div>
+                </div>
+                <div>
+                  <label className="block text-sm font-bold text-gray-700 mb-1 text-red-600">Retención de IVA</label>
+                  <div className="relative">
+                    <span className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-500 font-bold">$</span>
+                    <input 
+                      type="number" step="0.01" min="0"
+                      className="w-full border border-red-200 rounded-lg p-2.5 pl-8 outline-none focus:ring-2 focus:ring-red-400 font-mono text-sm bg-red-50/30" 
+                      value={payData.retencion_iva} 
+                      onChange={e => setPayData({...payData, retencion_iva: e.target.value})}
+                      placeholder="0.00"
+                    />
+                  </div>
+                </div>
+              </div>
+              <p className="text-xs text-gray-500 leading-tight">Plata que el cliente retuvo por impuestos. Suma como cancelado pero no entró al banco.</p>
+
+              <div className="mt-4 pt-4 border-t border-gray-100">
+                <label className="block text-sm font-bold text-gray-700 mb-1 text-blue-600">IVA a Guardar (Para pagar a AFIP)</label>
                 <div className="relative">
                   <span className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-500 font-bold">$</span>
                   <input 
                     type="number" step="0.01" min="0"
-                    className="w-full border border-gray-300 rounded-lg p-2.5 pl-8 outline-none focus:ring-2 focus:ring-red-400 font-mono text-lg bg-red-50/30" 
-                    value={payData.monto_retenido} 
-                    onChange={e => setPayData({...payData, monto_retenido: e.target.value})}
+                    className="w-full border border-blue-200 rounded-lg p-2.5 pl-8 outline-none focus:ring-2 focus:ring-blue-400 font-mono text-lg bg-blue-50/30" 
+                    value={payData.iva_a_guardar} 
+                    onChange={e => setPayData({...payData, iva_a_guardar: e.target.value})}
                     placeholder="0.00"
                   />
                 </div>
-                <p className="text-xs text-gray-500 mt-1 leading-tight">Plata que el cliente descontó en concepto de impuestos. Suma como cancelado pero no entró al banco.</p>
+                <p className="text-xs text-gray-500 mt-1 leading-tight">Plata que cobraste de IVA y querés que el Dashboard te avise que tenés que separar para AFIP.</p>
               </div>
 
-              <div className="flex items-center gap-3 bg-amber-50 p-3 rounded-lg border border-amber-100">
+              <div className="flex items-center gap-3 bg-amber-50 p-3 rounded-lg border border-amber-100 mt-2">
                 <input 
                   type="checkbox" id="informal_cobro" 
                   className="w-5 h-5 rounded border-amber-300 text-amber-600 focus:ring-amber-500"
@@ -505,7 +546,7 @@ export default function Facturacion() {
                           const finalMonto = Number(row.monto_final || row.monto_base);
                           
                           // Resta
-                          const sumaCancelada = descData.monto_pagado + descData.monto_retenido;
+                          const sumaCancelada = descData.monto_pagado + descData.retencion_ganancias + descData.retencion_iva + descData.monto_retenido;
                           const resta = finalMonto - sumaCancelada;
                           
                           return (
@@ -554,13 +595,22 @@ export default function Facturacion() {
                                     <div className="font-mono font-bold text-jengibre-dark text-[13px]">{formatARS(finalMonto)}</div>
                                     
                                     {/* Muestra desglose de cobro/retención */}
-                                    {(descData.monto_pagado > 0 || descData.monto_retenido > 0) ? (
+                                    {(descData.monto_pagado > 0 || descData.retencion_ganancias > 0 || descData.retencion_iva > 0 || descData.monto_retenido > 0 || descData.iva_a_guardar > 0) ? (
                                       <div className="text-[10px] mt-1 space-y-0.5">
                                         {descData.monto_pagado > 0 && (
                                           <p className="text-gray-600 font-medium">Cobrado: <span className="font-mono text-gray-900">{formatARS(descData.monto_pagado)}</span></p>
                                         )}
+                                        {descData.retencion_ganancias > 0 && (
+                                          <p className="text-red-500 font-medium">Ret. Gan: <span className="font-mono">{formatARS(descData.retencion_ganancias)}</span></p>
+                                        )}
+                                        {descData.retencion_iva > 0 && (
+                                          <p className="text-red-500 font-medium">Ret. IVA: <span className="font-mono">{formatARS(descData.retencion_iva)}</span></p>
+                                        )}
                                         {descData.monto_retenido > 0 && (
-                                          <p className="text-red-500 font-medium">Retenido: <span className="font-mono">{formatARS(descData.monto_retenido)}</span></p>
+                                          <p className="text-red-500 font-medium">Otras Ret: <span className="font-mono">{formatARS(descData.monto_retenido)}</span></p>
+                                        )}
+                                        {descData.iva_a_guardar > 0 && (
+                                          <p className="text-blue-600 font-bold border-t border-blue-100 pt-0.5 mt-0.5">IVA Guardado: <span className="font-mono">{formatARS(descData.iva_a_guardar)}</span></p>
                                         )}
                                         {resta > 0.01 && (
                                           <p className="text-amber-600 font-bold border-t border-amber-100 pt-0.5 mt-0.5">Resta: <span className="font-mono">{formatARS(resta)}</span></p>
