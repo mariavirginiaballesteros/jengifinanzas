@@ -104,7 +104,7 @@ export default function Dashboard() {
     let ingresosMes = 0;
     let costosMes = 0;
     
-    // Variables para el cálculo de IVA (Global / Acumulado para que no se pierdan)
+    // Variables para el cálculo de IVA (Posición Histórica y Acumulada)
     let ivaVentas = 0;
     let ivaCompras = 0;
     let ivaRetenciones = 0;
@@ -112,7 +112,7 @@ export default function Dashboard() {
     const now = new Date();
     const currentMonthPrefix = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
 
-    // Recorremos movimientos (caja real)
+    // Recorremos movimientos (caja real) SOLO PARA INGRESOS Y EGRESOS DEL MES
     movimientos.forEach(m => {
       const monto = Number(m.monto);
       
@@ -128,11 +128,6 @@ export default function Dashboard() {
           costosMes += monto;
         }
       }
-
-      // Sumamos el IVA de caja globalmente (histórico)
-      if (m.tipo === 'ingreso' && m.tiene_iva) {
-        ivaVentas += (monto / 1.21) * 0.21;
-      }
     });
 
     const resultadoMes = ingresosMes - costosMes;
@@ -144,17 +139,23 @@ export default function Dashboard() {
       });
     }
 
-    // Calculamos retenciones y el "IVA a Guardar" reportado explícitamente en Facturación
+    // Calculamos IVA Facturado, Retenciones e "IVA a Guardar" reportado 100% desde Facturación
     if (facturas) {
       facturas.forEach(f => {
         try {
           const desc = JSON.parse(f.descripcion || '{}');
-          if (desc.retencion_iva) ivaRetenciones += Number(desc.retencion_iva);
-          if (desc.iva_a_guardar) ivaVentas += Number(desc.iva_a_guardar); // Usamos lo que indicaron guardar explícitamente
+          const retIva = Number(desc.retencion_iva) || 0;
+          const ivaGuardado = Number(desc.iva_a_guardar) || 0;
+          
+          ivaRetenciones += retIva;
+          
+          // El IVA Facturado total = Retenciones + Lo que guardaste
+          ivaVentas += (retIva + ivaGuardado);
         } catch (e) {}
       });
     }
 
+    // El monto a pagar a la AFIP es lo facturado, menos compras, menos lo que ya te retuvieron
     const ivaEstimadoAPagar = ivaVentas - ivaCompras - ivaRetenciones;
 
     // 2. Costo del Equipo Activo
@@ -272,12 +273,12 @@ export default function Dashboard() {
           <div>
              <p className="text-sm text-gray-500 font-medium">IVA Facturado (+)</p>
              <p className="text-xl font-mono font-bold text-gray-900 mt-1">{formatARS(stats.iva.ventas)}</p>
-             <p className="text-[10px] text-gray-400 mt-1 leading-tight">IVA declarado en Caja y Facturación</p>
+             <p className="text-[10px] text-gray-400 mt-1 leading-tight">IVA Guardado + Retenciones declaradas</p>
           </div>
           <div>
              <p className="text-sm text-gray-500 font-medium">Crédito Compras (-)</p>
              <p className="text-xl font-mono font-bold text-green-600 mt-1">{formatARS(stats.iva.compras)}</p>
-             <p className="text-[10px] text-gray-400 mt-1 leading-tight">Cargado en pestaña Compras</p>
+             <p className="text-[10px] text-gray-400 mt-1 leading-tight">Acumulado en pestaña Compras</p>
           </div>
           <div>
              <p className="text-sm text-gray-500 font-medium">Retención de IVA (-)</p>
