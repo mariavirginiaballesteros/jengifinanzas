@@ -52,8 +52,8 @@ export default function Proyeccion() {
   const { data: clientes, isLoading: loadingClientes } = useQuery({
     queryKey: ['proyeccion_clientes'],
     queryFn: async () => {
-      // Nos traemos fecha_fin y monto_ars para la simulación anual
-      const { data, error } = await supabase.from('clientes').select('id, nombre, estado, monto_ars, fecha_fin').eq('estado', 'activo');
+      // Nos traemos fecha_inicio, fecha_fin y monto_ars para la simulación
+      const { data, error } = await supabase.from('clientes').select('id, nombre, estado, monto_ars, fecha_inicio, fecha_fin').eq('estado', 'activo');
       if (error) throw error;
       return data;
     }
@@ -61,10 +61,20 @@ export default function Proyeccion() {
 
   // 1. Cálculos de ESTE MES SELECCIONADO
   const stats = useMemo(() => {
-    if (!facturas || !equipo || !clientes) return { ingresos: 0, egresosEquipo: 0, resultado: 0, margen: 0, listadoEquipo: [] };
+    if (!facturas || !equipo || !clientes) return { ingresosFacturados: 0, mrrEsperado: 0, egresosEquipo: 0, resultado: 0, margen: 0, listadoEquipo: [] };
 
-    // Total Ingresos Esperados (Sacado de las facturas programadas)
-    const ingresos = facturas.reduce((acc, f) => acc + Number(f.monto_final || f.monto_base || 0), 0);
+    // Total Facturado (Sacado del cronograma de facturas real de este mes)
+    const ingresosFacturados = facturas.reduce((acc, f) => acc + Number(f.monto_final || f.monto_base || 0), 0);
+
+    // MRR Esperado (Sacado de los abonos base de los clientes vigentes este mes)
+    let mrrEsperado = 0;
+    clientes.forEach((c: any) => {
+      const finString = c.fecha_fin ? c.fecha_fin.substring(0, 7) : '9999-99';
+      const inicioString = c.fecha_inicio ? c.fecha_inicio.substring(0, 7) : '0000-00';
+      if (finString >= mesSeleccionado && inicioString <= mesSeleccionado) {
+        mrrEsperado += Number(c.monto_ars || 0);
+      }
+    });
 
     // Total Egresos Equipo (Base + Proyectos Activos EN ESTE MES)
     const listadoEquipo = equipo.map(miembro => {
@@ -77,7 +87,8 @@ export default function Proyeccion() {
         if (c && c.estado === 'activo') {
           // El contrato debe estar vigente en el mes seleccionado para pagarle al equipo
           const finString = c.fecha_fin ? c.fecha_fin.substring(0, 7) : '9999-99';
-          if (finString >= mesSeleccionado) {
+          const inicioString = c.fecha_inicio ? c.fecha_inicio.substring(0, 7) : '0000-00';
+          if (finString >= mesSeleccionado && inicioString <= mesSeleccionado) {
             costoProyectos += Number(monto);
             proyectosAsignados++;
           }
@@ -90,11 +101,11 @@ export default function Proyeccion() {
 
     const egresosEquipo = listadoEquipo.reduce((acc, m) => acc + m.total, 0);
 
-    // Resultado Económico
-    const resultado = ingresos - egresosEquipo;
-    const margen = ingresos > 0 ? (resultado / ingresos) * 100 : 0;
+    // Resultado Económico usando MRR
+    const resultado = mrrEsperado - egresosEquipo;
+    const margen = mrrEsperado > 0 ? (resultado / mrrEsperado) * 100 : 0;
 
-    return { ingresos, egresosEquipo, resultado, margen, listadoEquipo };
+    return { ingresosFacturados, mrrEsperado, egresosEquipo, resultado, margen, listadoEquipo };
   }, [facturas, equipo, clientes, mesSeleccionado]);
 
 
@@ -121,9 +132,10 @@ export default function Proyeccion() {
       // A) Calculamos qué clientes están activos este mes simulado
       clientes.forEach((c: any) => {
          const finString = c.fecha_fin ? c.fecha_fin.substring(0, 7) : '9999-99';
+         const inicioString = c.fecha_inicio ? c.fecha_inicio.substring(0, 7) : '0000-00';
          
-         // Si el vencimiento es mayor o igual al mes simulado, el cliente paga
-         if (finString >= mesString) {
+         // Si el contrato está activo (ya empezó y no venció), el cliente paga
+         if (finString >= mesString && inicioString <= mesString) {
             ingresos += Number(c.monto_ars || 0);
             clientesActivosMes.add(c.id);
             
@@ -192,10 +204,10 @@ export default function Proyeccion() {
         <div className="bg-white border border-jengibre-border p-5 rounded-2xl shadow-sm">
           <div className="flex items-center gap-2 text-gray-500 mb-2">
             <TrendingUp size={18} className="text-green-600" />
-            <h3 className="text-sm font-bold uppercase tracking-wider">Ingresos Esperados</h3>
+            <h3 className="text-sm font-bold uppercase tracking-wider">MRR (Abonos Base)</h3>
           </div>
-          <p className="text-3xl font-mono font-bold text-gray-900">{isLoading ? '...' : formatARS(stats.ingresos)}</p>
-          <p className="text-xs text-gray-400 mt-2">Suma de facturas del mes seleccionado</p>
+          <p className="text-3xl font-mono font-bold text-gray-900">{isLoading ? '...' : formatARS(stats.mrrEsperado)}</p>
+          <p className="text-xs text-gray-500 mt-2 font-medium">Facturado: <span className="font-bold text-gray-700">{formatARS(stats.ingresosFacturados)}</span> en cronograma</p>
         </div>
 
         <div className="bg-white border border-jengibre-border p-5 rounded-2xl shadow-sm">
