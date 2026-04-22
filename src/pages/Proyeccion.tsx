@@ -1,3 +1,4 @@
+'} para el carácter conflictivo">
 import React, { useState, useMemo } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { supabase } from '@/integrations/supabase/client';
@@ -224,7 +225,7 @@ export default function Proyeccion() {
             <h3 className="text-sm font-bold uppercase tracking-wider">Margen de Rentabilidad</h3>
           </div>
           <p className="text-3xl font-mono font-bold">{isLoading ? '...' : `${stats.margen.toFixed(1)}%`}</p>
-          <p className="text-xs text-gray-400 mt-2">Objetivo saludable: > 25%</p>
+          <p className="text-xs text-gray-400 mt-2">Objetivo saludable: {">"} 25%</p>
         </div>
       </div>
 
