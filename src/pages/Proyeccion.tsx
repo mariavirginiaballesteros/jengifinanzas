@@ -2,7 +2,7 @@ import React, { useState, useMemo } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { supabase } from '@/integrations/supabase/client';
 import { TipAlert } from '@/components/TipAlert';
-import { TrendingUp, TrendingDown, DollarSign, PieChart, ArrowRight, Calendar, LineChart, AlertTriangle } from 'lucide-react';
+import { TrendingUp, TrendingDown, DollarSign, PieChart, ArrowRight, Calendar, LineChart, AlertTriangle, Info } from 'lucide-react';
 import { formatARS } from '@/lib/utils';
 
 // Helper de notas del equipo
@@ -63,10 +63,10 @@ export default function Proyeccion() {
   const stats = useMemo(() => {
     if (!facturas || !equipo || !clientes) return { ingresosFacturados: 0, mrrEsperado: 0, egresosEquipo: 0, resultado: 0, margen: 0, listadoEquipo: [] };
 
-    // Total Facturado (Sacado del cronograma de facturas real de este mes)
+    // Total Facturado (Sacado del cronograma de facturas REAL de este mes -> ~17M)
     const ingresosFacturados = facturas.reduce((acc, f) => acc + Number(f.monto_final || f.monto_base || 0), 0);
 
-    // MRR Esperado (Sacado de los abonos base de los clientes vigentes este mes)
+    // MRR Teórico (Sacado de los abonos base de los clientes vigentes este mes -> ~21M)
     let mrrEsperado = 0;
     clientes.forEach((c: any) => {
       const finString = c.fecha_fin ? c.fecha_fin.substring(0, 7) : '9999-99';
@@ -101,15 +101,15 @@ export default function Proyeccion() {
 
     const egresosEquipo = listadoEquipo.reduce((acc, m) => acc + m.total, 0);
 
-    // Resultado Económico usando MRR
-    const resultado = mrrEsperado - egresosEquipo;
-    const margen = mrrEsperado > 0 ? (resultado / mrrEsperado) * 100 : 0;
+    // Resultado Económico usando la FACTURACIÓN PROGRAMADA (El número real que vas a cobrar)
+    const resultado = ingresosFacturados - egresosEquipo;
+    const margen = ingresosFacturados > 0 ? (resultado / ingresosFacturados) * 100 : 0;
 
     return { ingresosFacturados, mrrEsperado, egresosEquipo, resultado, margen, listadoEquipo };
   }, [facturas, equipo, clientes, mesSeleccionado]);
 
 
-  // 2. Cálculos para PROYECCIÓN ANUAL (12 Meses Vista MRR)
+  // 2. Cálculos para PROYECCIÓN ANUAL (12 Meses Vista)
   const anualStats = useMemo(() => {
     if (!clientes || !equipo) return [];
     
@@ -129,33 +129,24 @@ export default function Proyeccion() {
       let vencimientos: string[] = [];
       const clientesActivosMes = new Set<string>();
 
-      // A) Calculamos qué clientes están activos este mes simulado
+      // Usamos el MRR Teórico (Abonos) porque a futuro no tenemos las facturas generadas todavía
       clientes.forEach((c: any) => {
          const finString = c.fecha_fin ? c.fecha_fin.substring(0, 7) : '9999-99';
          const inicioString = c.fecha_inicio ? c.fecha_inicio.substring(0, 7) : '0000-00';
          
-         // Si el contrato está activo (ya empezó y no venció), el cliente paga
          if (finString >= mesString && inicioString <= mesString) {
             ingresos += Number(c.monto_ars || 0);
             clientesActivosMes.add(c.id);
-            
-            // Si vence JUSTO este mes, lo guardamos para la alerta
-            if (finString === mesString) {
-               vencimientos.push(c.nombre);
-            }
+            if (finString === mesString) vencimientos.push(c.nombre);
          }
       });
 
-      // B) Calculamos los costos, cruzando con el Set de clientes que sobrevivieron este mes
       let costos = 0;
       equipo.forEach((e: any) => {
          costos += Number(e.honorario_mensual || 0);
          const notas = parseNotas(e.notas);
          Object.entries(notas.asignaciones || {}).forEach(([cId, monto]) => {
-            // SOLO se paga el proyecto si el cliente sigue activo este mes
-            if (clientesActivosMes.has(cId)) {
-               costos += Number(monto);
-            }
+            if (clientesActivosMes.has(cId)) costos += Number(monto);
          });
       });
 
@@ -182,7 +173,7 @@ export default function Proyeccion() {
       <header className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-8">
         <div>
           <h1 className="text-3xl font-display font-bold text-jengibre-dark">Proyección Mensual y Anual</h1>
-          <p className="text-gray-600 mt-1">Conocé la salud económica esperada y visualizá futuros baches de caja.</p>
+          <p className="text-gray-600 mt-1">Simulador de rentabilidad cruzando tus ingresos facturados contra tus costos operativos.</p>
         </div>
         <div className="flex items-center gap-3 bg-white border border-gray-200 p-2 rounded-xl shadow-sm">
           <Calendar className="text-gray-400 ml-2" size={20} />
@@ -195,48 +186,69 @@ export default function Proyeccion() {
         </div>
       </header>
 
-      <TipAlert id="proyeccion_intro" title="💡 Costos Inteligentes">
-        El sistema detecta los vencimientos de contratos. Si un cliente no renueva en un mes futuro, el ingreso decae, <strong>pero el costo proporcional que se le paga a tu equipo por ese proyecto también desaparece automáticamente</strong>, manteniendo real tu cálculo de gastos.
+      {/* EXPLICADOR DE DATOS */}
+      <TipAlert id="proyeccion_origen_datos" title="💡 ¿De dónde salen estos números?">
+        <ul className="list-disc pl-5 space-y-1 mt-2 text-sm text-gray-700">
+          <li><strong>Facturación Programada:</strong> Suma exactamente las cuotas que ya generaste en la pestaña <em>Facturación</em> para este mes.</li>
+          <li><strong>MRR Teórico (Abonos):</strong> Suma los abonos base cargados en el perfil de cada empresa en la pestaña <em>Clientes</em>.</li>
+          <li><strong>Honorarios Equipo:</strong> Suma el sueldo base + el monto asignado a proyectos para cada miembro, validando que el cliente tenga contrato vigente este mes.</li>
+        </ul>
+        <div className="mt-3 bg-amber-50 p-2 rounded border border-amber-200 text-amber-800 text-sm font-medium">
+          ⚠️ Si tu Facturación Programada es menor al MRR Teórico, significa que te falta cargarle las facturas a algunos clientes en este mes.
+        </div>
       </TipAlert>
 
       {/* TARJETAS DE RESUMEN DEL MES SELECCIONADO */}
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 mb-8">
-        <div className="bg-white border border-jengibre-border p-5 rounded-2xl shadow-sm">
+        
+        {/* TARJETA DE INGRESOS (FACTURADO VS MRR) */}
+        <div className="bg-white border border-jengibre-border p-5 rounded-2xl shadow-sm relative overflow-hidden">
+          <div className="absolute top-0 right-0 p-3 opacity-10"><TrendingUp size={48} /></div>
           <div className="flex items-center gap-2 text-gray-500 mb-2">
-            <TrendingUp size={18} className="text-green-600" />
-            <h3 className="text-sm font-bold uppercase tracking-wider">MRR (Abonos Base)</h3>
+            <TrendingUp size={18} className="text-blue-600" />
+            <h3 className="text-sm font-bold uppercase tracking-wider">Facturación Real</h3>
           </div>
-          <p className="text-3xl font-mono font-bold text-gray-900">{isLoading ? '...' : formatARS(stats.mrrEsperado)}</p>
-          <p className="text-xs text-gray-500 mt-2 font-medium">Facturado: <span className="font-bold text-gray-700">{formatARS(stats.ingresosFacturados)}</span> en cronograma</p>
+          <p className="text-3xl font-mono font-bold text-blue-900">{isLoading ? '...' : formatARS(stats.ingresosFacturados)}</p>
+          <p className="text-[11px] text-gray-500 mt-1">Suma de la pestaña Facturación</p>
+          
+          <div className="mt-4 pt-3 border-t border-gray-100 flex justify-between items-center">
+            <span className="text-[11px] font-bold text-gray-500 uppercase tracking-wider flex items-center gap-1">
+              <Info size={12} /> MRR Teórico (Abonos)
+            </span>
+            <span className="font-mono font-bold text-gray-700 text-sm">{isLoading ? '...' : formatARS(stats.mrrEsperado)}</span>
+          </div>
         </div>
 
+        {/* TARJETA DE EGRESOS */}
         <div className="bg-white border border-jengibre-border p-5 rounded-2xl shadow-sm">
           <div className="flex items-center gap-2 text-gray-500 mb-2">
             <TrendingDown size={18} className="text-red-500" />
-            <h3 className="text-sm font-bold uppercase tracking-wider">Honorarios Equipo</h3>
+            <h3 className="text-sm font-bold uppercase tracking-wider">Costo Equipo</h3>
           </div>
           <p className="text-3xl font-mono font-bold text-gray-900">{isLoading ? '...' : formatARS(stats.egresosEquipo)}</p>
-          <p className="text-xs text-gray-400 mt-2">Sueldos base + proyectos activos</p>
+          <p className="text-[11px] text-gray-500 mt-1">Sueldo Base + Proyectos asignados</p>
         </div>
 
+        {/* TARJETA DE RESULTADO */}
         <div className={`border p-5 rounded-2xl shadow-sm ${stats.resultado >= 0 ? 'bg-jengibre-green/10 border-jengibre-green/30' : 'bg-red-50 border-red-200'}`}>
           <div className="flex items-center gap-2 text-gray-600 mb-2">
             <DollarSign size={18} className={stats.resultado >= 0 ? 'text-jengibre-green' : 'text-red-600'} />
-            <h3 className="text-sm font-bold uppercase tracking-wider">Resultado Proyectado</h3>
+            <h3 className="text-sm font-bold uppercase tracking-wider">Resultado (Facturación - Equipo)</h3>
           </div>
           <p className={`text-3xl font-mono font-bold ${stats.resultado >= 0 ? 'text-green-800' : 'text-red-700'}`}>
             {isLoading ? '...' : formatARS(stats.resultado)}
           </p>
-          <p className="text-xs opacity-70 mt-2 font-medium">Plata limpia (antes de impuestos)</p>
+          <p className="text-[11px] opacity-70 mt-1 font-medium">Rentabilidad operativa del mes</p>
         </div>
 
+        {/* TARJETA DE MARGEN */}
         <div className="bg-jengibre-dark text-white p-5 rounded-2xl shadow-sm">
           <div className="flex items-center gap-2 text-gray-300 mb-2">
             <PieChart size={18} />
             <h3 className="text-sm font-bold uppercase tracking-wider">Margen de Rentabilidad</h3>
           </div>
           <p className="text-3xl font-mono font-bold">{isLoading ? '...' : `${stats.margen.toFixed(1)}%`}</p>
-          <p className="text-xs text-gray-400 mt-2">Objetivo saludable: {">"} 25%</p>
+          <p className="text-[11px] text-gray-400 mt-1">Objetivo saludable: {">"} 25%</p>
         </div>
       </div>
 
@@ -245,8 +257,11 @@ export default function Proyeccion() {
         {/* COLUMNA INGRESOS */}
         <div className="bg-white border border-jengibre-border rounded-2xl overflow-hidden shadow-sm flex flex-col">
           <div className="bg-gray-50 px-5 py-4 border-b border-gray-100 flex items-center justify-between">
-            <h3 className="font-display font-bold text-lg text-gray-800">Facturación a Cobrar</h3>
-            <span className="bg-green-100 text-green-800 text-xs font-bold px-2.5 py-1 rounded-full">{facturas?.length || 0} cuotas</span>
+            <div>
+              <h3 className="font-display font-bold text-lg text-gray-800">Desglose de Facturación</h3>
+              <p className="text-xs text-gray-500">Lo que programaste en la pestaña Facturación</p>
+            </div>
+            <span className="bg-blue-100 text-blue-800 text-xs font-bold px-2.5 py-1 rounded-full">{facturas?.length || 0} cuotas</span>
           </div>
           <div className="p-0 overflow-y-auto max-h-[400px]">
             {isLoading ? (
@@ -264,7 +279,7 @@ export default function Proyeccion() {
                       <tr key={row.id} className="border-b border-gray-50 hover:bg-gray-50 transition-colors">
                         <td className="px-5 py-3">
                           <p className="font-bold text-gray-900">{row.cliente?.nombre || 'Manual / Sin cliente'}</p>
-                          <p className="text-xs text-gray-500">Cuota {row.cuota}</p>
+                          <p className="text-[11px] text-gray-500">Cuota {row.cuota}</p>
                         </td>
                         <td className="px-5 py-3 text-right">
                           <p className="font-mono font-bold text-gray-900">{formatARS(monto)}</p>
@@ -284,7 +299,10 @@ export default function Proyeccion() {
         {/* COLUMNA EGRESOS */}
         <div className="bg-white border border-jengibre-border rounded-2xl overflow-hidden shadow-sm flex flex-col">
           <div className="bg-gray-50 px-5 py-4 border-b border-gray-100 flex items-center justify-between">
-            <h3 className="font-display font-bold text-lg text-gray-800">Pagos al Equipo</h3>
+            <div>
+              <h3 className="font-display font-bold text-lg text-gray-800">Desglose de Equipo</h3>
+              <p className="text-xs text-gray-500">Según contratos de clientes vigentes este mes</p>
+            </div>
             <span className="bg-red-100 text-red-800 text-xs font-bold px-2.5 py-1 rounded-full">{stats.listadoEquipo.length} personas</span>
           </div>
           <div className="p-0 overflow-y-auto max-h-[400px]">
@@ -300,7 +318,7 @@ export default function Proyeccion() {
                       <td className="px-5 py-3">
                         <p className="font-bold text-gray-900">{miembro.nombre}</p>
                         <p className="text-xs text-gray-500 flex items-center gap-1">
-                          <span className="bg-gray-100 px-1 rounded">{miembro.proyectosAsignados} proyectos</span>
+                          <span className="bg-gray-100 px-1 rounded">{miembro.proyectosAsignados} proyectos activos</span>
                         </p>
                       </td>
                       <td className="px-5 py-3 text-right">
@@ -323,10 +341,10 @@ export default function Proyeccion() {
         <div className="mb-6 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
           <div>
             <h2 className="text-2xl font-display font-bold text-jengibre-dark flex items-center gap-2">
-              <LineChart className="text-jengibre-primary" /> Proyección Anual (MRR)
+              <LineChart className="text-jengibre-primary" /> Proyección Anual a Futuro (MRR Teórico)
             </h2>
             <p className="text-gray-600 mt-1">
-              Simulación de 12 meses basándose en el Abono Base de tus clientes y sus fechas de vencimiento.
+              Como no tenemos las facturas creadas para todo el año que viene, esta tabla <strong>utiliza los Abonos Base de Clientes (MRR)</strong> asumiendo que vas a facturar exactamente eso.
             </p>
           </div>
         </div>
@@ -349,7 +367,6 @@ export default function Proyeccion() {
                   <tr><td colSpan={6} className="p-8 text-center text-gray-400">Cargando proyección...</td></tr>
                 ) : (
                   anualStats.map((stat, i) => {
-                    // Verificamos si los ingresos decaen respecto al mes anterior
                     const prevIngresos = i > 0 ? anualStats[i-1].ingresos : stat.ingresos;
                     const decae = stat.ingresos < prevIngresos;
 
@@ -357,10 +374,10 @@ export default function Proyeccion() {
                       <tr key={stat.id} className={`border-b border-gray-50 hover:bg-gray-50 transition-colors ${decae ? 'bg-red-50/20' : ''}`}>
                         <td className="px-5 py-4 font-bold text-gray-900">{stat.label}</td>
                         <td className="px-5 py-4 text-right">
-                          <span className={`font-mono font-bold ${decae ? 'text-red-600' : 'text-green-700'}`}>
+                          <span className={`font-mono font-bold ${decae ? 'text-red-600' : 'text-gray-700'}`}>
                             {formatARS(stat.ingresos)}
                           </span>
-                          {decae && <TrendingDown size={14} className="inline ml-1 text-red-500" />}
+                          {decae && <TrendingDown size={14} className="inline ml-1 text-red-500" title="Caída de ingresos" />}
                         </td>
                         <td className="px-5 py-4 text-right font-mono text-gray-600">
                           {formatARS(stat.costos)}
