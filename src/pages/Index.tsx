@@ -1,4 +1,3 @@
-'} en Index">
 import React, { useMemo } from 'react';
 import { formatARS } from '@/lib/utils';
 import { Plus, FileText, RefreshCw, AlertCircle, CheckCircle2, Landmark } from 'lucide-react';
@@ -274,12 +273,12 @@ export default function Dashboard() {
           <div>
              <p className="text-sm text-gray-500 font-medium">IVA Facturado (+)</p>
              <p className="text-xl font-mono font-bold text-gray-900 mt-1">{formatARS(stats.iva.ventas)}</p>
-             <p className="text-[10px] text-gray-400 mt-1 leading-tight">IVA declarado en Caja y Facturación</p>
+             <p className="text-[10px] text-gray-400 mt-1 leading-tight">IVA Guardado + Retenciones declaradas</p>
           </div>
           <div>
              <p className="text-sm text-gray-500 font-medium">Crédito Compras (-)</p>
              <p className="text-xl font-mono font-bold text-green-600 mt-1">{formatARS(stats.iva.compras)}</p>
-             <p className="text-[10px] text-gray-400 mt-1 leading-tight">Cargado en pestaña Compras</p>
+             <p className="text-[10px] text-gray-400 mt-1 leading-tight">Acumulado en pestaña Compras</p>
           </div>
           <div>
              <p className="text-sm text-gray-500 font-medium">Retención de IVA (-)</p>
@@ -348,13 +347,13 @@ export default function Dashboard() {
               <SemaforoKPI 
                 title="Ratio Equipo / Ingresos" 
                 value={`${stats.kpis.ratioEquipo.toFixed(1)}%`} 
-                label="OK <40%" 
+                label={"OK <40%"} 
                 status={stats.kpis.ratioEquipo > 50 ? 'danger' : stats.kpis.ratioEquipo > 40 ? 'alert' : 'ok'} 
               />
               <SemaforoKPI 
                 title="Concentración (Cliente + grande)" 
                 value={`${stats.kpis.concentracion.toFixed(1)}%`} 
-                label="OK <30%" 
+                label={"OK <30%"} 
                 status={stats.kpis.concentracion > 40 ? 'danger' : stats.kpis.concentracion > 30 ? 'alert' : 'ok'} 
               />
               <SemaforoKPI 
@@ -366,13 +365,13 @@ export default function Dashboard() {
               <SemaforoKPI 
                 title="Margen Neto Mensual" 
                 value={`${stats.kpis.margenNeto.toFixed(1)}%`} 
-                label="OK >25%" 
+                label={"OK >25%"} 
                 status={stats.kpis.margenNeto < 10 ? 'danger' : stats.kpis.margenNeto < 25 ? 'alert' : 'ok'} 
               />
               <SemaforoKPI 
                 title="Días p/ próximo vencimiento" 
                 value={stats.kpis.minDias === Infinity ? '-' : `${stats.kpis.minDias}d`} 
-                label="OK >60d" 
+                label={"OK >60d"} 
                 status={stats.kpis.minDias <= 30 ? 'danger' : stats.kpis.minDias <= 60 ? 'alert' : 'ok'} 
               />
             </div>
