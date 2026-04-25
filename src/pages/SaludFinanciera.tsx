@@ -1,26 +1,64 @@
 import React, { useMemo, useState } from 'react';
-import { useQuery } from '@tanstack/react-query';
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { supabase } from '@/integrations/supabase/client';
 import { formatARS, formatUSD } from '@/lib/utils';
 import { TipAlert } from '@/components/TipAlert';
-import { Wallet, ChevronLeft, ChevronRight, Bot, Sparkles, ShieldCheck, Unlock, ArrowRight, Lightbulb, TrendingUp } from 'lucide-react';
+import { Wallet, ChevronLeft, ChevronRight, Bot, Sparkles, ShieldCheck, Unlock, Lightbulb, TrendingUp, Settings, Send, Loader2 } from 'lucide-react';
 import { useCotizacionOficial } from '@/hooks/useCotizacion';
+import { showSuccess, showError } from '@/utils/toast';
 
 export default function SaludFinanciera() {
+  const queryClient = useQueryClient();
   const [yearSelected, setYearSelected] = useState(new Date().getFullYear());
   const { data: cotizacionData } = useCotizacionOficial();
   const cotizacion = cotizacionData || 1000;
 
-  const { data: movimientos, isLoading } = useQuery({
+  // Estado para Modal de Ajuste de Dirección
+  const [settingsOpen, setSettingsOpen] = useState(false);
+  const [direccionInput, setDireccionInput] = useState('');
+
+  // Estado para el Chat IA
+  const [chatInput, setChatInput] = useState('');
+  const [chatMessages, setChatMessages] = useState<{role: 'user' | 'assistant', content: string}[]>([]);
+  const [isChatLoading, setIsChatLoading] = useState(false);
+
+  const { data: movimientos, isLoading: isLoadingMov } = useQuery({
     queryKey: ['movimientos_salud'],
     queryFn: async () => {
-      const { data, error } = await supabase
-        .from('movimientos')
-        .select(`*, cliente:clientes(nombre)`)
-        .order('fecha', { ascending: true });
+      const { data, error } = await supabase.from('movimientos').select(`*, cliente:clientes(nombre)`).order('fecha', { ascending: true });
       if (error) throw error;
       return data;
     }
+  });
+
+  const { data: configDireccion, isLoading: isLoadingConf } = useQuery({
+    queryKey: ['configuracion', 'costo_direccion_mensual'],
+    queryFn: async () => {
+      const { data, error } = await supabase.from('configuracion').select('id, valor').eq('clave', 'costo_direccion_mensual').maybeSingle();
+      if (error && error.code !== 'PGRST116') throw error;
+      return data;
+    }
+  });
+
+  const costoDireccion = Number(configDireccion?.valor || 0);
+
+  const saveDireccionMutation = useMutation({
+    mutationFn: async (val: string) => {
+      const payload = { clave: 'costo_direccion_mensual', valor: val, descripcion: 'Sueldo de dirección / Honorarios fijos extra para cálculo de Salud Financiera' };
+      if (configDireccion?.id) {
+        const { error } = await supabase.from('configuracion').update(payload).eq('id', configDireccion.id);
+        if (error) throw error;
+      } else {
+        const { error } = await supabase.from('configuracion').insert([payload]);
+        if (error) throw error;
+      }
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['configuracion', 'costo_direccion_mensual'] });
+      setSettingsOpen(false);
+      showSuccess('Costo de dirección actualizado');
+    },
+    onError: (err: any) => showError(err.message)
   });
 
   const { 
@@ -52,7 +90,6 @@ export default function SaludFinanciera() {
       const valorEnPesos = isUSD ? montoOriginal * cotizacion : montoOriginal;
       const factor = m.tipo === 'ingreso' ? 1 : -1;
 
-      // Calcular para cajas
       if (!saldosCalc[m.cuenta]) saldosCalc[m.cuenta] = { ars: 0, usd: 0 };
       if (isUSD) {
         saldosCalc[m.cuenta].usd += montoOriginal * factor;
@@ -64,7 +101,6 @@ export default function SaludFinanciera() {
       
       cajaTotalARS += valorEnPesos * factor;
 
-      // Calcular para la grilla
       if (m.fecha.startsWith(yearSelected.toString())) {
         const mesPrefix = m.fecha.substring(0, 7);
         const mesIndex = mesesKeys.indexOf(mesPrefix);
@@ -88,7 +124,7 @@ export default function SaludFinanciera() {
     });
 
     const mesesConMovimientos = totalesMes.filter(t => t.ingresos > 0 || t.egresos > 0);
-    const promedioCostos = mesesConMovimientos.length > 0
+    const promedioCostosHistóricos = mesesConMovimientos.length > 0
       ? mesesConMovimientos.reduce((acc, t) => acc + t.egresos, 0) / mesesConMovimientos.length
       : 0;
 
@@ -97,46 +133,40 @@ export default function SaludFinanciera() {
       t.margen = t.ingresos > 0 ? (t.neto / t.ingresos) * 100 : 0;
     });
 
-    // Cálculos de Inteligencia / Excedentes
-    const objFondo = promedioCostos > 0 ? promedioCostos * 6 : 1000000; 
+    // CÁLCULO DE OBJETIVOS (HISTÓRICO + COSTO DIRECCIÓN)
+    const totalCostoMensual = promedioCostosHistóricos + costoDireccion;
+    const objFondo = totalCostoMensual > 0 ? totalCostoMensual * 6 : 1000000; 
     const exc = Math.max(0, cajaTotalARS - objFondo);
-    // Evitamos valores negativos en la barra de progreso
     const pct = Math.max(0, Math.min(100, (cajaTotalARS / objFondo) * 100));
 
-    // Motor de Asistente Financiero (Reglas)
+    // Insights Iniciales
     const insights = [];
-    
-    // 1. Análisis de Liquidez vs Inflación
-    if (arsPuros > promedioCostos * 1.5) {
+    if (arsPuros > totalCostoMensual * 1.5) {
       insights.push({
         type: 'invest',
-        title: 'Exceso de liquidez en pesos detectado',
-        text: `Tenés ${formatARS(arsPuros)} inmovilizados en ARS, lo cual supera tus gastos operativos promedio mensuales (${formatARS(promedioCostos)}). Para evitar que se devalúen por inflación, sugerimos colocar al menos ${formatARS(arsPuros - promedioCostos)} en un Fondo Común de Inversión (FCI) Money Market (Ej: MercadoPago/Ualá) o cauciones a 7 días. Así generan interés diario y podés rescatarlos rápido si los necesitás.`
+        title: 'Exceso de liquidez en pesos',
+        text: `Tenés ${formatARS(arsPuros)} inmovilizados, superando tus gastos mensuales. Sugerimos colocar excedentes en FCI Money Market para evitar devaluación diaria.`
       });
     }
-
-    // 2. Análisis de Dolarización
     const porcentajeUSD = cajaTotalARS > 0 ? ((usdPuros * cotizacion) / cajaTotalARS) * 100 : 0;
     if (porcentajeUSD < 30 && exc > 0) {
       insights.push({
         type: 'currency',
-        title: 'Oportunidad de Cobertura Cambiaria',
-        text: `Solo el ${porcentajeUSD.toFixed(1)}% de tu caja está dolarizada. Aprovechando que tenés un excedente real, te recomendamos derivar un 20% de esos fondos libres a la compra de USD (MEP o Cripto) para diversificar el riesgo país de tu fondo de reserva.`
+        title: 'Oportunidad de Cobertura',
+        text: `Solo el ${porcentajeUSD.toFixed(1)}% está dolarizado. Se recomienda derivar fondos libres a USD MEP/Cripto para diversificar el riesgo de la reserva.`
       });
     }
-
-    // 3. Análisis de Retiros
     if (exc > 0) {
       insights.push({
         type: 'profit',
         title: 'Excedente listo para distribuir',
-        text: `Tu caja está súper sana. Ya cubriste los 6 meses de fondo de seguridad. Podés retirar los ${formatARS(exc)} libres. Sugerencia de gestión: Retirá el 50% (${formatARS(exc * 0.5)}) como distribución de ganancias para los socios, e invertí el otro 50% en pauta, software o herramientas para hacer crecer la agencia.`
+        text: `Caja muy sana (6 meses cubiertos incluyendo Dirección). Podés retirar o invertir ${formatARS(exc)} libres.`
       });
     } else {
       insights.push({
         type: 'warning',
-        title: 'Fase de Construcción de Capital',
-        text: `Tu caja actual cubre ${(cajaTotalARS / (promedioCostos || 1)).toFixed(1)} meses de operación. El objetivo son 6 meses de ahorro. No te recomendamos hacer retiros de ganancias todavía. Todo ingreso extra debería dejarse en el circuito para engrosar el fondo de emergencia.`
+        title: 'Construcción de Capital',
+        text: `Cubre ${(cajaTotalARS / (totalCostoMensual || 1)).toFixed(1)} meses. El objetivo son 6 meses. No se recomienda hacer retiros extra de ganancias todavía.`
       });
     }
 
@@ -146,14 +176,40 @@ export default function SaludFinanciera() {
       totalCajaARS: cajaTotalARS,
       totalARS_puro: arsPuros,
       totalUSD_puro: usdPuros,
-      avgCostos: promedioCostos,
+      avgCostos: promedioCostosHistóricos,
       fondoReservaObjetivo: objFondo,
       excedente: exc,
       porcentajeFondo: pct,
       grilla: { ingresos: ingresosPorCliente, egresos: egresosPorConcepto, totales: totalesMes },
       aiInsights: insights
     };
-  }, [movimientos, yearSelected, cotizacion]);
+  }, [movimientos, yearSelected, cotizacion, costoDireccion]);
+
+  const handleSendMessage = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!chatInput.trim() || isChatLoading) return;
+
+    const newMessages: {role: 'user'|'assistant', content: string}[] = [...chatMessages, { role: 'user', content: chatInput }];
+    setChatMessages(newMessages);
+    setChatInput('');
+    setIsChatLoading(true);
+
+    try {
+      const contextoAI = { totalCajaARS, avgCostos, costoDireccion, excedente, fondoReservaObjetivo, totalUSD_puro, totalARS_puro };
+      const { data, error } = await supabase.functions.invoke('asesor-financiero', {
+        body: { messages: newMessages, contexto: contextoAI }
+      });
+
+      if (error) throw error;
+      if (data.error) throw new Error(data.error);
+
+      setChatMessages([...newMessages, { role: 'assistant', content: data.reply }]);
+    } catch (err: any) {
+      setChatMessages([...newMessages, { role: 'assistant', content: `⚠️ Error: ${err.message || 'No se pudo conectar'}. Asegurate de haber configurado la OPENAI_API_KEY en Supabase.` }]);
+    } finally {
+      setIsChatLoading(false);
+    }
+  };
 
   const clientesOrdenados = Object.values(grilla.ingresos).sort((a, b) => a.nombre.localeCompare(b.nombre));
   const egresosOrdenados = Object.entries(grilla.egresos).sort((a, b) => {
@@ -162,6 +218,7 @@ export default function SaludFinanciera() {
     return totalB - totalA;
   });
 
+  const isLoading = isLoadingMov || isLoadingConf;
   if (isLoading) return <div className="p-12 text-center">Cargando datos reales...</div>;
 
   return (
@@ -178,7 +235,39 @@ export default function SaludFinanciera() {
         </div>
       </header>
 
-      {/* BLOQUE DE SALDOS (BILLETERAS) */}
+      {settingsOpen && (
+        <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4">
+          <div className="bg-white rounded-2xl w-full max-w-md p-6 shadow-xl animate-in zoom-in-95">
+            <h2 className="text-2xl font-display font-bold mb-2 flex items-center gap-2">
+              <Settings className="text-jengibre-primary" /> Costos de Dirección
+            </h2>
+            <p className="text-sm text-gray-600 mb-6">
+              Ingresá el sueldo u honorarios mensuales de dirección. Este monto se sumará a los gastos operativos para asegurarnos de que el cálculo del <strong>Fondo de 6 Meses</strong> incluya su retribución de seguridad.
+            </p>
+
+            <form onSubmit={(e) => { e.preventDefault(); saveDireccionMutation.mutate(direccionInput); }}>
+              <label className="block text-sm font-bold text-gray-700 mb-1">Monto Mensual de Dirección (ARS)</label>
+              <div className="relative">
+                <span className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-500 font-bold">$</span>
+                <input 
+                  type="number" step="1000" min="0" required autoFocus
+                  className="w-full border border-gray-300 rounded-lg p-3 pl-8 outline-none focus:ring-2 focus:ring-jengibre-primary font-mono text-lg"
+                  value={direccionInput} onChange={e => setDireccionInput(e.target.value)}
+                />
+              </div>
+
+              <div className="flex justify-end gap-3 mt-8 pt-4 border-t border-gray-100">
+                <button type="button" onClick={() => setSettingsOpen(false)} className="px-4 py-2 text-gray-600 hover:bg-gray-100 rounded-lg font-medium transition-colors">Cancelar</button>
+                <button type="submit" disabled={saveDireccionMutation.isPending} className="bg-jengibre-primary hover:bg-[#a64120] text-white px-6 py-2 rounded-lg font-medium transition-colors disabled:opacity-50">
+                  {saveDireccionMutation.isPending ? 'Guardando...' : 'Guardar Parámetros'}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* BLOQUE DE SALDOS */}
       <section className="mb-8">
         <h2 className="text-sm font-bold uppercase tracking-widest text-gray-500 mb-3 flex items-center gap-2">
           <Wallet size={16} /> Saldos Reales por Cuenta
@@ -211,20 +300,28 @@ export default function SaludFinanciera() {
 
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-8 mb-8">
         {/* CALCULADORA DE EXCEDENTES */}
-        <section className="lg:col-span-7 bg-white border border-jengibre-border rounded-2xl p-6 shadow-sm flex flex-col">
-          <h2 className="text-xl font-display font-bold text-jengibre-dark flex items-center gap-2 mb-2">
-            <ShieldCheck className="text-jengibre-green" /> Distribución de Excedentes y Retiros
-          </h2>
+        <section className="lg:col-span-6 bg-white border border-jengibre-border rounded-2xl p-6 shadow-sm flex flex-col">
+          <div className="flex items-center justify-between mb-2">
+            <h2 className="text-xl font-display font-bold text-jengibre-dark flex items-center gap-2">
+              <ShieldCheck className="text-jengibre-green" /> Excedentes y Retiros
+            </h2>
+            <button onClick={() => { setDireccionInput(costoDireccion.toString()); setSettingsOpen(true); }} className="text-xs flex items-center gap-1 font-bold text-blue-600 bg-blue-50 hover:bg-blue-100 px-2 py-1 rounded transition-colors">
+              <Settings size={14} /> Ajustar Cálculo
+            </button>
+          </div>
           <p className="text-sm text-gray-500 mb-6">
-            El sistema calcula tu costo de vida mensual promedio y reserva automáticamente 6 meses de dinero "intocable". El resto se considera ganancia libre.
+            El sistema aparta 6 meses de dinero "intocable". El resto se considera ganancia libre.
           </p>
 
           <div className="flex flex-col gap-6">
             <div className="bg-gray-50 p-4 rounded-xl border border-gray-200">
               <div className="flex justify-between items-end mb-2">
                 <div>
-                  <p className="text-xs font-bold uppercase tracking-wider text-gray-500">Costo Operativo Promedio</p>
-                  <p className="text-xl font-mono font-bold text-gray-900">{formatARS(avgCostos)} <span className="text-sm font-sans font-normal text-gray-500">/ mes</span></p>
+                  <p className="text-xs font-bold uppercase tracking-wider text-gray-500">Costo Base + Dirección</p>
+                  <p className="text-xl font-mono font-bold text-gray-900">
+                    {formatARS(avgCostos + costoDireccion)} <span className="text-sm font-sans font-normal text-gray-500">/ mes</span>
+                  </p>
+                  <p className="text-[10px] text-gray-500 font-medium mt-1">Histórico: {formatARS(avgCostos)} + Dir: {formatARS(costoDireccion)}</p>
                 </div>
                 <div className="text-right">
                   <p className="text-xs font-bold uppercase tracking-wider text-jengibre-primary">Meta (Fondo 6 Meses)</p>
@@ -232,7 +329,6 @@ export default function SaludFinanciera() {
                 </div>
               </div>
               
-              {/* BARRA DE PROGRESO */}
               <div className="h-4 w-full bg-gray-200 rounded-full mt-4 overflow-hidden flex relative">
                 <div className="h-full bg-jengibre-green transition-all duration-1000" style={{ width: `${porcentajeFondo}%` }}></div>
                 {porcentajeFondo >= 100 && (
@@ -240,7 +336,7 @@ export default function SaludFinanciera() {
                 )}
               </div>
               <p className="text-xs text-gray-500 text-center mt-2 font-medium">
-                Tu caja actual cubre el {porcentajeFondo.toFixed(1)}% del fondo de reserva objetivo.
+                Tu caja actual cubre el {porcentajeFondo.toFixed(1)}% de la meta de reserva.
               </p>
             </div>
 
@@ -251,7 +347,7 @@ export default function SaludFinanciera() {
                   <p className="text-sm font-bold uppercase tracking-wider">Capital Inmovilizado</p>
                 </div>
                 <p className="text-2xl font-mono font-bold text-jengibre-dark">{formatARS(Math.min(Math.max(0, totalCajaARS), fondoReservaObjetivo))}</p>
-                <p className="text-[10px] text-gray-500 mt-1 leading-tight">Dinero de emergencia operativo. No debería retirarse.</p>
+                <p className="text-[10px] text-gray-500 mt-1 leading-tight">Dinero de emergencia. No debería retirarse.</p>
               </div>
 
               <div className={`flex-1 border p-4 rounded-xl ${excedente > 0 ? 'bg-indigo-50 border-indigo-200' : 'bg-gray-50 border-gray-200'}`}>
@@ -263,28 +359,29 @@ export default function SaludFinanciera() {
                   {formatARS(excedente)}
                 </p>
                 <p className={`text-[10px] mt-1 leading-tight ${excedente > 0 ? 'text-indigo-600' : 'text-gray-400'}`}>
-                  {excedente > 0 ? 'Dinero libre para retirar como ganancia o inversión pura.' : 'Aún no hay ganancias libres disponibles.'}
+                  {excedente > 0 ? 'Libre para retirar como ganancia o inversión.' : 'Aún no hay ganancias libres.'}
                 </p>
               </div>
             </div>
           </div>
         </section>
 
-        {/* ASESOR INTELIGENTE */}
-        <section className="lg:col-span-5 bg-[#1e293b] text-white border border-gray-700 rounded-2xl p-6 shadow-lg relative overflow-hidden flex flex-col">
-          <div className="absolute top-0 right-0 w-32 h-32 bg-indigo-500/20 blur-3xl rounded-full"></div>
-          <div className="absolute bottom-0 left-0 w-32 h-32 bg-pink-500/20 blur-3xl rounded-full"></div>
+        {/* ASESOR INTELIGENTE Y CHAT */}
+        <section className="lg:col-span-6 bg-[#1e293b] text-white border border-gray-700 rounded-2xl p-6 shadow-lg relative overflow-hidden flex flex-col h-[500px]">
+          <div className="absolute top-0 right-0 w-48 h-48 bg-indigo-500/20 blur-3xl rounded-full"></div>
+          <div className="absolute bottom-0 left-0 w-48 h-48 bg-pink-500/20 blur-3xl rounded-full"></div>
           
           <h2 className="text-xl font-display font-bold flex items-center gap-2 mb-1 relative z-10">
             <Bot className="text-indigo-400" /> Asesor Financiero IA
           </h2>
-          <p className="text-sm text-gray-400 mb-6 relative z-10">
-            Análisis automático de tus movimientos y recomendaciones para potenciar tu capital.
+          <p className="text-sm text-gray-400 mb-4 relative z-10">
+            Consultá o pedí simulaciones. Conoce tus números reales.
           </p>
 
-          <div className="space-y-4 overflow-y-auto pr-2 relative z-10 flex-1">
-            {aiInsights.map((insight, idx) => (
-              <div key={idx} className="bg-gray-800/50 border border-gray-700 p-4 rounded-xl backdrop-blur-sm">
+          <div className="flex-1 overflow-y-auto space-y-4 pr-2 relative z-10 custom-scrollbar mb-4">
+            {/* Insights Automáticos Iniciales */}
+            {chatMessages.length === 0 && aiInsights.map((insight, idx) => (
+              <div key={idx} className="bg-gray-800/60 border border-gray-700 p-4 rounded-xl backdrop-blur-sm">
                 <div className="flex items-start gap-3">
                   <div className={`p-2 rounded-lg shrink-0 ${
                     insight.type === 'invest' ? 'bg-blue-500/20 text-blue-400' : 
@@ -292,10 +389,10 @@ export default function SaludFinanciera() {
                     insight.type === 'currency' ? 'bg-purple-500/20 text-purple-400' : 
                     'bg-amber-500/20 text-amber-400'
                   }`}>
-                    {insight.type === 'invest' ? <TrendingUp size={18} /> : 
-                     insight.type === 'profit' ? <Sparkles size={18} /> : 
-                     insight.type === 'currency' ? <Wallet size={18} /> : 
-                     <Lightbulb size={18} />}
+                    {insight.type === 'invest' ? <TrendingUp size={16} /> : 
+                     insight.type === 'profit' ? <Sparkles size={16} /> : 
+                     insight.type === 'currency' ? <Wallet size={16} /> : 
+                     <Lightbulb size={16} />}
                   </div>
                   <div>
                     <h4 className="font-bold text-gray-100 text-sm">{insight.title}</h4>
@@ -304,7 +401,40 @@ export default function SaludFinanciera() {
                 </div>
               </div>
             ))}
+
+            {/* Mensajes del Chat */}
+            {chatMessages.map((msg, idx) => (
+              <div key={idx} className={`flex ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}>
+                <div className={`p-3 rounded-xl max-w-[85%] text-sm leading-relaxed ${
+                  msg.role === 'user' ? 'bg-indigo-600 text-white' : 'bg-gray-800/80 border border-gray-700 text-gray-200'
+                }`}>
+                  {msg.content}
+                </div>
+              </div>
+            ))}
+
+            {isChatLoading && (
+              <div className="flex justify-start">
+                <div className="p-3 rounded-xl bg-gray-800/80 border border-gray-700 flex items-center gap-2 text-gray-400 text-sm">
+                  <Loader2 className="animate-spin" size={16} /> Analizando finanzas...
+                </div>
+              </div>
+            )}
           </div>
+
+          <form onSubmit={handleSendMessage} className="relative z-10 flex gap-2">
+            <input 
+              type="text" 
+              placeholder="¿Debería comprar dólares hoy?" 
+              className="flex-1 bg-gray-900 border border-gray-600 rounded-lg px-4 py-2.5 text-sm text-white outline-none focus:border-indigo-400 focus:ring-1 focus:ring-indigo-400" 
+              value={chatInput}
+              onChange={e => setChatInput(e.target.value)}
+              disabled={isChatLoading}
+            />
+            <button type="submit" disabled={isChatLoading || !chatInput.trim()} className="bg-indigo-600 hover:bg-indigo-700 disabled:opacity-50 text-white px-4 py-2.5 rounded-lg transition-colors flex items-center justify-center">
+              <Send size={18} />
+            </button>
+          </form>
         </section>
       </div>
 
@@ -332,7 +462,7 @@ export default function SaludFinanciera() {
               </tr>
               {clientesOrdenados.map(c => {
                 const totalRow = c.data.reduce((a, b) => a + b, 0);
-                if (totalRow === 0) return null; // Ocultar filas vacías todo el año
+                if (totalRow === 0) return null; 
                 return (
                   <tr key={c.nombre} className="border-b border-gray-100 hover:bg-yellow-50/50">
                     <td className="p-2 border-r border-gray-200 sticky left-0 bg-white group-hover:bg-yellow-50/50 z-10 shadow-[2px_0_5px_-2px_rgba(0,0,0,0.05)] font-medium text-gray-700 truncate max-w-[250px]">{c.nombre}</td>
