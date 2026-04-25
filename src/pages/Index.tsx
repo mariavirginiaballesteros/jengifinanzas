@@ -1,6 +1,6 @@
 import React, { useMemo } from 'react';
 import { formatARS } from '@/lib/utils';
-import { Plus, FileText, RefreshCw, AlertCircle, CheckCircle2, Landmark } from 'lucide-react';
+import { Plus, FileText, RefreshCw, AlertCircle, CheckCircle2, Landmark, TrendingUp, Users, Sparkles, ShieldCheck } from 'lucide-react';
 import { Link } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
 import { supabase } from '@/integrations/supabase/client';
@@ -94,6 +94,16 @@ export default function Dashboard() {
     }
   });
 
+  const { data: configDireccion } = useQuery({
+    queryKey: ['configuracion', 'costo_direccion_mensual'],
+    queryFn: async () => {
+      const { data, error } = await supabase.from('configuracion').select('valor').eq('clave', 'costo_direccion_mensual').maybeSingle();
+      if (error && error.code !== 'PGRST116') throw error;
+      return data;
+    }
+  });
+  const costoDireccion = Number(configDireccion?.valor || 0);
+
   // Procesamiento matemático
   const stats = useMemo(() => {
     if (!movimientos || !clientes || !equipo) return null;
@@ -102,34 +112,62 @@ export default function Dashboard() {
     let ingresosMes = 0;
     let costosMes = 0;
     
+    let ingresosYTD = 0;
+    let costosYTD = 0;
+    let totalCajaARS = 0;
+    const egresosPorMes: Record<string, number> = {};
+
     let ivaVentas = 0;
     let ivaCompras = 0;
     let ivaRetenciones = 0;
 
     const now = new Date();
     const currentMonthPrefix = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
+    const currentYearPrefix = now.getFullYear().toString();
 
     movimientos.forEach(m => {
       let isUSD = false;
       try { const p = JSON.parse(m.notas || '{}'); if (p.moneda === 'USD') isUSD = true; } catch(e){}
       
       const valorEnPesos = isUSD ? Number(m.monto) * cotizacion : Number(m.monto);
+      const factor = m.tipo === 'ingreso' ? 1 : -1;
+
+      totalCajaARS += valorEnPesos * factor;
 
       if (!saldosCalc[m.cuenta]) saldosCalc[m.cuenta] = 0;
-      saldosCalc[m.cuenta] += m.tipo === 'ingreso' ? valorEnPesos : -valorEnPesos;
+      saldosCalc[m.cuenta] += valorEnPesos * factor;
 
       if (m.fecha.startsWith(currentMonthPrefix)) {
         if (m.tipo === 'ingreso') ingresosMes += valorEnPesos;
         else costosMes += valorEnPesos;
       }
+
+      if (m.fecha.startsWith(currentYearPrefix)) {
+        if (m.tipo === 'ingreso') ingresosYTD += valorEnPesos;
+        else costosYTD += valorEnPesos;
+      }
+
+      if (m.tipo === 'egreso') {
+        const mes = m.fecha.substring(0, 7);
+        if (!egresosPorMes[mes]) egresosPorMes[mes] = 0;
+        egresosPorMes[mes] += valorEnPesos;
+      }
     });
 
+    const gananciaYTD = ingresosYTD - costosYTD;
     const resultadoMes = ingresosMes - costosMes;
 
+    // Cálculo de Meta de Fondo de Emergencia (Alineado con Salud Financiera)
+    const mesesCount = Object.keys(egresosPorMes).length;
+    const totalEgresosHist = Object.values(egresosPorMes).reduce((a,b)=>a+b, 0);
+    const avgCostos = mesesCount > 0 ? totalEgresosHist / mesesCount : 0;
+    const metaFondo = (avgCostos + costoDireccion) * 6;
+    const fondoInmovilizado = Math.max(0, Math.min(totalCajaARS, metaFondo));
+
+    // IVA
     if (compras) {
       compras.forEach(c => { ivaCompras += Number(c.iva_credito || 0); });
     }
-
     if (facturas) {
       facturas.forEach(f => {
         try {
@@ -141,9 +179,9 @@ export default function Dashboard() {
         } catch (e) {}
       });
     }
-
     const ivaEstimadoAPagar = ivaVentas - ivaCompras - ivaRetenciones;
 
+    // Métricas de Equipo y Clientes
     let costoEquipo = 0;
     equipo.forEach(e => {
       let costo = Number(e.honorario_mensual || 0);
@@ -161,15 +199,17 @@ export default function Dashboard() {
     const ratioEquipo = ingresosMes > 0 ? (costoEquipo / ingresosMes) * 100 : 0;
     const margenNeto = ingresosMes > 0 ? (resultadoMes / ingresosMes) * 100 : 0;
 
-    let totalAbonos = 0;
+    let mrrTotal = 0;
     let maxAbono = 0;
     clientes.forEach(c => {
-      // Calculamos el MRR mezclando ARS y USD
       const abono = Number(c.monto_ars || 0) + (Number(c.monto_usd || 0) * cotizacion);
-      totalAbonos += abono;
+      mrrTotal += abono;
       if (abono > maxAbono) maxAbono = abono;
     });
-    const concentracion = totalAbonos > 0 ? (maxAbono / totalAbonos) * 100 : 0;
+    
+    const arr = mrrTotal * 12;
+    const ticketPromedio = clientes.length > 0 ? mrrTotal / clientes.length : 0;
+    const concentracion = mrrTotal > 0 ? (maxAbono / mrrTotal) * 100 : 0;
 
     let minDias = Infinity;
     clientes.forEach(c => {
@@ -179,18 +219,17 @@ export default function Dashboard() {
       }
     });
 
-    const cuentaFondo = Object.keys(saldosCalc).find(k => k.toLowerCase().includes('fondo'));
-    const saldoFondo = cuentaFondo ? saldosCalc[cuentaFondo] : 0;
-    const targetFondo = costosMes > 0 ? costosMes * 6 : 1000000;
-    const fondoRatio = (saldoFondo / targetFondo) * 100;
-
     return {
       saldos: saldosCalc,
+      arr,
+      ticketPromedio,
+      ytd: { ingresos: ingresosYTD, costos: costosYTD, ganancia: gananciaYTD },
+      fondo: { actual: fondoInmovilizado, meta: metaFondo },
       mesActual: { ingresos: ingresosMes, costos: costosMes, resultado: resultadoMes },
       iva: { ventas: ivaVentas, compras: ivaCompras, retenciones: ivaRetenciones, aPagar: ivaEstimadoAPagar },
-      kpis: { ratioEquipo, margenNeto, concentracion, minDias, fondoRatio, saldoFondo }
+      kpis: { ratioEquipo, margenNeto, concentracion, minDias, fondoRatio: metaFondo > 0 ? (fondoInmovilizado/metaFondo)*100 : 0 }
     };
-  }, [movimientos, clientes, equipo, compras, facturas, cotizacion]);
+  }, [movimientos, clientes, equipo, compras, facturas, cotizacion, costoDireccion]);
 
   const isLoading = isLoadingMov || isLoadingCli || isLoadingEq || isLoadingRec || isLoadingComp || isLoadingFact;
 
@@ -208,7 +247,7 @@ export default function Dashboard() {
 
   const alertas = [];
   if (stats.kpis.minDias <= 30) alertas.push({ type: 'amber', title: 'Contrato por vencer', desc: `Un contrato activo vence en ${stats.kpis.minDias} días.` });
-  if (stats.kpis.fondoRatio < 50) alertas.push({ type: 'red', title: 'Fondo de Emergencia Bajo', desc: `Tu reserva de ${formatARS(stats.kpis.saldoFondo)} cubre menos de 3 meses operativos.` });
+  if (stats.kpis.fondoRatio < 50) alertas.push({ type: 'red', title: 'Fondo de Emergencia Bajo', desc: `Tu reserva cubre menos de la mitad de los 6 meses de seguridad operativos y directivos.` });
   if (recuperos && recuperos.length > 0) alertas.push({ type: 'amber', title: 'Recuperos pendientes', desc: `Tenés ${recuperos.length} recuperos de gastos esperando cobranza.` });
 
   return (
@@ -216,7 +255,7 @@ export default function Dashboard() {
       <header className="flex flex-col md:flex-row md:items-center justify-between gap-4">
         <div>
           <h1 className="text-3xl font-display font-bold text-jengibre-dark">Hola, Equipo 👋</h1>
-          <p className="text-gray-600 mt-1">Acá está el resumen financiero en base a tus movimientos reales.</p>
+          <p className="text-gray-600 mt-1">Acá está el resumen ejecutivo en base a tus movimientos reales.</p>
         </div>
         <div className="flex gap-2">
           <Link to="/caja" className="bg-jengibre-primary hover:bg-[#a64120] text-white px-4 py-2.5 rounded-lg font-medium flex items-center gap-2 transition-colors shadow-sm">
@@ -224,6 +263,45 @@ export default function Dashboard() {
           </Link>
         </div>
       </header>
+
+      {/* MÉTRICAS ESTRATÉGICAS - VISIÓN EJECUTIVA */}
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 mb-8">
+        <div className="bg-white border border-jengibre-border p-5 rounded-2xl shadow-sm relative overflow-hidden group">
+          <div className="absolute -right-4 -top-4 text-blue-50 opacity-50 group-hover:scale-110 transition-transform"><TrendingUp size={100} /></div>
+          <div className="relative">
+            <p className="text-sm font-bold text-gray-500 uppercase tracking-wider mb-1 flex items-center gap-2"><TrendingUp size={16} className="text-blue-600"/> Proyección Anual (ARR)</p>
+            <p className="text-3xl font-mono font-bold text-jengibre-dark">{formatARS(stats.arr)}</p>
+            <p className="text-[11px] text-gray-400 mt-2 font-medium">Facturación bruta proyectada (MRR × 12)</p>
+          </div>
+        </div>
+        
+        <div className="bg-white border border-jengibre-border p-5 rounded-2xl shadow-sm relative overflow-hidden group">
+          <div className="absolute -right-4 -top-4 text-amber-50 opacity-50 group-hover:scale-110 transition-transform"><Users size={100} /></div>
+          <div className="relative">
+            <p className="text-sm font-bold text-gray-500 uppercase tracking-wider mb-1 flex items-center gap-2"><Users size={16} className="text-amber-600"/> Ticket Promedio</p>
+            <p className="text-3xl font-mono font-bold text-jengibre-dark">{formatARS(stats.ticketPromedio)}</p>
+            <p className="text-[11px] text-gray-400 mt-2 font-medium">Ingreso base por cliente activo</p>
+          </div>
+        </div>
+
+        <div className="bg-white border border-jengibre-border p-5 rounded-2xl shadow-sm relative overflow-hidden group">
+          <div className="absolute -right-4 -top-4 text-emerald-50 opacity-50 group-hover:scale-110 transition-transform"><Sparkles size={100} /></div>
+          <div className="relative">
+            <p className="text-sm font-bold text-gray-500 uppercase tracking-wider mb-1 flex items-center gap-2"><Sparkles size={16} className="text-emerald-600"/> Ganancia Real Acum.</p>
+            <p className={`text-3xl font-mono font-bold ${stats.ytd.ganancia >= 0 ? 'text-emerald-700' : 'text-red-600'}`}>{formatARS(stats.ytd.ganancia)}</p>
+            <p className="text-[11px] text-gray-400 mt-2 font-medium">Ingresos - Egresos (Año en curso)</p>
+          </div>
+        </div>
+
+        <div className="bg-white border border-jengibre-border p-5 rounded-2xl shadow-sm relative overflow-hidden group">
+          <div className="absolute -right-4 -top-4 text-indigo-50 opacity-50 group-hover:scale-110 transition-transform"><ShieldCheck size={100} /></div>
+          <div className="relative">
+            <p className="text-sm font-bold text-gray-500 uppercase tracking-wider mb-1 flex items-center gap-2"><ShieldCheck size={16} className="text-indigo-600"/> Fondo de Emergencia</p>
+            <p className="text-3xl font-mono font-bold text-indigo-700">{formatARS(stats.fondo.actual)}</p>
+            <p className="text-[11px] text-gray-400 mt-2 font-medium">Meta (6 meses de seguridad): {formatARS(stats.fondo.meta)}</p>
+          </div>
+        </div>
+      </div>
 
       {/* POSICIÓN DE IVA GLOBAL/ACUMULADA */}
       <section className="bg-white border border-jengibre-border p-6 rounded-2xl shadow-sm">
@@ -255,7 +333,7 @@ export default function Dashboard() {
 
       {/* SALDOS POR CUENTA */}
       <section>
-        <h2 className="text-lg font-display font-bold mb-4 text-gray-700">Principales Cuentas (Eq. en Pesos)</h2>
+        <h2 className="text-lg font-display font-bold mb-4 text-gray-700">Principales Cuentas Activas</h2>
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
           {topAccounts.map(([nombre, monto]) => (
             <StatCard key={nombre} title={`🏦 ${nombre}`} value={formatARS(monto)} trend={monto < 0 ? 'negative' : 'neutral'} />
@@ -273,10 +351,10 @@ export default function Dashboard() {
         {/* RESUMEN DEL MES */}
         <div className="col-span-1 lg:col-span-2 space-y-8">
           <section>
-            <h2 className="text-lg font-display font-bold mb-4 text-gray-700">Resumen de este mes</h2>
+            <h2 className="text-lg font-display font-bold mb-4 text-gray-700">Resumen del mes actual</h2>
             <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
               <div className="bg-jengibre-card border border-jengibre-border p-5 rounded-2xl">
-                <p className="text-sm text-gray-600">Ingresos cobrados (Neto)</p>
+                <p className="text-sm text-gray-600">Ingresos cobrados</p>
                 <p className="text-2xl font-mono font-bold text-jengibre-green mt-1">{formatARS(stats.mesActual.ingresos)}</p>
               </div>
               <div className="bg-jengibre-card border border-jengibre-border p-5 rounded-2xl">
@@ -284,7 +362,7 @@ export default function Dashboard() {
                 <p className="text-2xl font-mono font-bold text-jengibre-red mt-1">{formatARS(stats.mesActual.costos)}</p>
               </div>
               <div className="bg-jengibre-dark text-jengibre-white p-5 rounded-2xl shadow-md">
-                <p className="text-sm text-gray-300">Resultado Neto Económico</p>
+                <p className="text-sm text-gray-300">Resultado Neto (Mes)</p>
                 <p className={`text-2xl font-mono font-bold mt-1 ${stats.mesActual.resultado < 0 ? 'text-red-400' : 'text-white'}`}>
                   {formatARS(stats.mesActual.resultado)}
                 </p>
@@ -294,12 +372,12 @@ export default function Dashboard() {
 
           {/* KPIS DE SALUD REALES */}
           <section>
-            <h2 className="text-lg font-display font-bold mb-4 text-gray-700">Métricas de Salud</h2>
+            <h2 className="text-lg font-display font-bold mb-4 text-gray-700">Métricas Operativas</h2>
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
               <SemaforoKPI title="Ratio Equipo / Ingresos" value={`${stats.kpis.ratioEquipo.toFixed(1)}%`} label={"OK <40%"} status={stats.kpis.ratioEquipo > 50 ? 'danger' : stats.kpis.ratioEquipo > 40 ? 'alert' : 'ok'} />
               <SemaforoKPI title="Concentración (Cliente + grande)" value={`${stats.kpis.concentracion.toFixed(1)}%`} label={"OK <30%"} status={stats.kpis.concentracion > 40 ? 'danger' : stats.kpis.concentracion > 30 ? 'alert' : 'ok'} />
-              <SemaforoKPI title="Fondo Emergencia (Obj 6 Meses)" value={`${stats.kpis.fondoRatio.toFixed(0)}%`} label={stats.kpis.fondoRatio >= 100 ? 'Completado' : 'Ahorrando'} status={stats.kpis.fondoRatio < 30 ? 'danger' : stats.kpis.fondoRatio < 80 ? 'alert' : 'ok'} />
-              <SemaforoKPI title="Margen Neto Mensual" value={`${stats.kpis.margenNeto.toFixed(1)}%`} label={"OK >25%"} status={stats.kpis.margenNeto < 10 ? 'danger' : stats.kpis.margenNeto < 25 ? 'alert' : 'ok'} />
+              <SemaforoKPI title="Meta de Reserva Cubierta" value={`${stats.kpis.fondoRatio.toFixed(0)}%`} label={stats.kpis.fondoRatio >= 100 ? 'Completado' : 'Ahorrando'} status={stats.kpis.fondoRatio < 30 ? 'danger' : stats.kpis.fondoRatio < 80 ? 'alert' : 'ok'} />
+              <SemaforoKPI title="Margen Neto del Mes" value={`${stats.kpis.margenNeto.toFixed(1)}%`} label={"OK >25%"} status={stats.kpis.margenNeto < 10 ? 'danger' : stats.kpis.margenNeto < 25 ? 'alert' : 'ok'} />
               <SemaforoKPI title="Días p/ próximo vencimiento" value={stats.kpis.minDias === Infinity ? '-' : `${stats.kpis.minDias}d`} label={"OK >60d"} status={stats.kpis.minDias <= 30 ? 'danger' : stats.kpis.minDias <= 60 ? 'alert' : 'ok'} />
             </div>
           </section>
