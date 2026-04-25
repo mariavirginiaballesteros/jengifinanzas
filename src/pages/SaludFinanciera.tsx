@@ -3,7 +3,7 @@ import { useQuery } from '@tanstack/react-query';
 import { supabase } from '@/integrations/supabase/client';
 import { formatARS, formatUSD } from '@/lib/utils';
 import { TipAlert } from '@/components/TipAlert';
-import { Wallet, ChevronLeft, ChevronRight, Bot, Sparkles, ShieldCheck, Unlock, ArrowRight, Lightbulb } from 'lucide-react';
+import { Wallet, ChevronLeft, ChevronRight, Bot, Sparkles, ShieldCheck, Unlock, ArrowRight, Lightbulb, TrendingUp } from 'lucide-react';
 import { useCotizacionOficial } from '@/hooks/useCotizacion';
 
 export default function SaludFinanciera() {
@@ -100,7 +100,8 @@ export default function SaludFinanciera() {
     // Cálculos de Inteligencia / Excedentes
     const objFondo = promedioCostos > 0 ? promedioCostos * 6 : 1000000; 
     const exc = Math.max(0, cajaTotalARS - objFondo);
-    const pct = Math.min(100, (cajaTotalARS / objFondo) * 100);
+    // Evitamos valores negativos en la barra de progreso
+    const pct = Math.max(0, Math.min(100, (cajaTotalARS / objFondo) * 100));
 
     // Motor de Asistente Financiero (Reglas)
     const insights = [];
@@ -110,7 +111,7 @@ export default function SaludFinanciera() {
       insights.push({
         type: 'invest',
         title: 'Exceso de liquidez en pesos detectado',
-        text: `Tenés ${formatARS(arsPuros)} inmovilizados en ARS, lo cual supera tus gastos operativos del mes (${formatARS(promedioCostos)}). Para evitar que se devalúen por inflación, sugerimos colocar al menos ${formatARS(arsPuros - promedioCostos)} en un Fondo Común de Inversión (FCI) Money Market (Ej: MercadoPago/Ualá) o cauciones a 7 días. Así generan interés diario y podés rescatarlos rápido si los necesitás.`
+        text: `Tenés ${formatARS(arsPuros)} inmovilizados en ARS, lo cual supera tus gastos operativos promedio mensuales (${formatARS(promedioCostos)}). Para evitar que se devalúen por inflación, sugerimos colocar al menos ${formatARS(arsPuros - promedioCostos)} en un Fondo Común de Inversión (FCI) Money Market (Ej: MercadoPago/Ualá) o cauciones a 7 días. Así generan interés diario y podés rescatarlos rápido si los necesitás.`
       });
     }
 
@@ -129,13 +130,13 @@ export default function SaludFinanciera() {
       insights.push({
         type: 'profit',
         title: 'Excedente listo para distribuir',
-        text: `Tu caja está súper sana. Ya cubriste los 6 meses de fondo de seguridad. Podés retirar los ${formatARS(exc)} libres. Sugerencia de gestión: Retirá el 50% (${formatARS(exc * 0.5)}) como distribución de ganancias para los socios, e invertí el otro 50% en pauta, software o herramientas para crecer la agencia.`
+        text: `Tu caja está súper sana. Ya cubriste los 6 meses de fondo de seguridad. Podés retirar los ${formatARS(exc)} libres. Sugerencia de gestión: Retirá el 50% (${formatARS(exc * 0.5)}) como distribución de ganancias para los socios, e invertí el otro 50% en pauta, software o herramientas para hacer crecer la agencia.`
       });
     } else {
       insights.push({
         type: 'warning',
         title: 'Fase de Construcción de Capital',
-        text: `Tu caja actual cubre ${(cajaTotalARS / (promedioCostos || 1)).toFixed(1)} meses de operación. El objetivo son 6 meses. No te recomendamos hacer retiros de ganancias todavía. Todo ingreso extra debería dejarse en el circuito para engrosar el fondo de emergencia.`
+        text: `Tu caja actual cubre ${(cajaTotalARS / (promedioCostos || 1)).toFixed(1)} meses de operación. El objetivo son 6 meses de ahorro. No te recomendamos hacer retiros de ganancias todavía. Todo ingreso extra debería dejarse en el circuito para engrosar el fondo de emergencia.`
       });
     }
 
@@ -249,7 +250,7 @@ export default function SaludFinanciera() {
                   <ShieldCheck size={18} />
                   <p className="text-sm font-bold uppercase tracking-wider">Capital Inmovilizado</p>
                 </div>
-                <p className="text-2xl font-mono font-bold text-jengibre-dark">{formatARS(Math.min(totalCajaARS, fondoReservaObjetivo))}</p>
+                <p className="text-2xl font-mono font-bold text-jengibre-dark">{formatARS(Math.min(Math.max(0, totalCajaARS), fondoReservaObjetivo))}</p>
                 <p className="text-[10px] text-gray-500 mt-1 leading-tight">Dinero de emergencia operativo. No debería retirarse.</p>
               </div>
 
