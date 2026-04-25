@@ -4,6 +4,7 @@ import { Plus, FileText, RefreshCw, AlertCircle, CheckCircle2, Landmark } from '
 import { Link } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
 import { supabase } from '@/integrations/supabase/client';
+import { useCotizacionOficial } from '@/hooks/useCotizacion';
 
 const StatCard = ({ title, value, sub, trend = 'neutral' }: { title: string, value: string, sub?: string, trend?: 'positive' | 'negative' | 'neutral' }) => (
   <div className="bg-jengibre-white border border-jengibre-border p-5 rounded-2xl shadow-sm hover:shadow-md transition-shadow">
@@ -20,12 +21,7 @@ const StatCard = ({ title, value, sub, trend = 'neutral' }: { title: string, val
 );
 
 const SemaforoKPI = ({ title, value, status, label }: { title: string, value: string, status: 'ok' | 'alert' | 'danger', label: string }) => {
-  const colors = {
-    ok: 'bg-jengibre-green',
-    alert: 'bg-jengibre-amber',
-    danger: 'bg-jengibre-red'
-  };
-  
+  const colors = { ok: 'bg-jengibre-green', alert: 'bg-jengibre-amber', danger: 'bg-jengibre-red' };
   return (
     <div className="bg-jengibre-white border border-jengibre-border p-4 rounded-xl flex items-center gap-4">
       <div className={`w-3 h-3 rounded-full shrink-0 ${colors[status]}`} />
@@ -41,6 +37,9 @@ const SemaforoKPI = ({ title, value, status, label }: { title: string, value: st
 };
 
 export default function Dashboard() {
+  const { data: cotizacionData } = useCotizacionOficial();
+  const cotizacion = cotizacionData || 1000;
+
   const { data: movimientos, isLoading: isLoadingMov } = useQuery({
     queryKey: ['movimientos_dashboard'],
     queryFn: async () => {
@@ -95,16 +94,14 @@ export default function Dashboard() {
     }
   });
 
-  // Procesamiento matemático de todos los datos reales
+  // Procesamiento matemático
   const stats = useMemo(() => {
     if (!movimientos || !clientes || !equipo) return null;
 
-    // 1. Saldos y Mes Actual
     const saldosCalc: Record<string, number> = {};
     let ingresosMes = 0;
     let costosMes = 0;
     
-    // Variables para el cálculo de IVA (Posición Histórica y Acumulada)
     let ivaVentas = 0;
     let ivaCompras = 0;
     let ivaRetenciones = 0;
@@ -112,53 +109,41 @@ export default function Dashboard() {
     const now = new Date();
     const currentMonthPrefix = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
 
-    // Recorremos movimientos (caja real) SOLO PARA INGRESOS Y EGRESOS DEL MES
     movimientos.forEach(m => {
-      const monto = Number(m.monto);
+      let isUSD = false;
+      try { const p = JSON.parse(m.notas || '{}'); if (p.moneda === 'USD') isUSD = true; } catch(e){}
       
-      // Saldos globales históricos
-      if (!saldosCalc[m.cuenta]) saldosCalc[m.cuenta] = 0;
-      saldosCalc[m.cuenta] += m.tipo === 'ingreso' ? monto : -monto;
+      const valorEnPesos = isUSD ? Number(m.monto) * cotizacion : Number(m.monto);
 
-      // Movimientos exclusivos del mes en curso
+      if (!saldosCalc[m.cuenta]) saldosCalc[m.cuenta] = 0;
+      saldosCalc[m.cuenta] += m.tipo === 'ingreso' ? valorEnPesos : -valorEnPesos;
+
       if (m.fecha.startsWith(currentMonthPrefix)) {
-        if (m.tipo === 'ingreso') {
-          ingresosMes += monto;
-        } else {
-          costosMes += monto;
-        }
+        if (m.tipo === 'ingreso') ingresosMes += valorEnPesos;
+        else costosMes += valorEnPesos;
       }
     });
 
     const resultadoMes = ingresosMes - costosMes;
 
-    // Crédito fiscal de todas las compras históricas (Acumulado)
     if (compras) {
-      compras.forEach(c => {
-        ivaCompras += Number(c.iva_credito || 0);
-      });
+      compras.forEach(c => { ivaCompras += Number(c.iva_credito || 0); });
     }
 
-    // Calculamos IVA Facturado, Retenciones e "IVA a Guardar" reportado 100% desde Facturación
     if (facturas) {
       facturas.forEach(f => {
         try {
           const desc = JSON.parse(f.descripcion || '{}');
           const retIva = Number(desc.retencion_iva) || 0;
           const ivaGuardado = Number(desc.iva_a_guardar) || 0;
-          
           ivaRetenciones += retIva;
-          
-          // El IVA Facturado total = Retenciones + Lo que guardaste
           ivaVentas += (retIva + ivaGuardado);
         } catch (e) {}
       });
     }
 
-    // El monto a pagar a la AFIP es lo facturado, menos compras, menos lo que ya te retuvieron
     const ivaEstimadoAPagar = ivaVentas - ivaCompras - ivaRetenciones;
 
-    // 2. Costo del Equipo Activo
     let costoEquipo = 0;
     equipo.forEach(e => {
       let costo = Number(e.honorario_mensual || 0);
@@ -166,8 +151,7 @@ export default function Dashboard() {
         const notas = JSON.parse(e.notas || '{}');
         if (notas.asignaciones) {
           Object.entries(notas.asignaciones).forEach(([cId, val]) => {
-            const c = clientes.find(cl => cl.id === cId);
-            if (c) costo += Number(val);
+            if (clientes.find(cl => cl.id === cId)) costo += Number(val);
           });
         }
       } catch (err) {}
@@ -177,17 +161,16 @@ export default function Dashboard() {
     const ratioEquipo = ingresosMes > 0 ? (costoEquipo / ingresosMes) * 100 : 0;
     const margenNeto = ingresosMes > 0 ? (resultadoMes / ingresosMes) * 100 : 0;
 
-    // 3. Concentración de Clientes
     let totalAbonos = 0;
     let maxAbono = 0;
     clientes.forEach(c => {
-      const abono = Number(c.monto_ars || 0);
+      // Calculamos el MRR mezclando ARS y USD
+      const abono = Number(c.monto_ars || 0) + (Number(c.monto_usd || 0) * cotizacion);
       totalAbonos += abono;
       if (abono > maxAbono) maxAbono = abono;
     });
     const concentracion = totalAbonos > 0 ? (maxAbono / totalAbonos) * 100 : 0;
 
-    // 4. Próximo Vencimiento
     let minDias = Infinity;
     clientes.forEach(c => {
       if (c.fecha_fin) {
@@ -196,7 +179,6 @@ export default function Dashboard() {
       }
     });
 
-    // 5. Fondo de Emergencia
     const cuentaFondo = Object.keys(saldosCalc).find(k => k.toLowerCase().includes('fondo'));
     const saldoFondo = cuentaFondo ? saldosCalc[cuentaFondo] : 0;
     const targetFondo = costosMes > 0 ? costosMes * 6 : 1000000;
@@ -205,22 +187,10 @@ export default function Dashboard() {
     return {
       saldos: saldosCalc,
       mesActual: { ingresos: ingresosMes, costos: costosMes, resultado: resultadoMes },
-      iva: {
-        ventas: ivaVentas,
-        compras: ivaCompras,
-        retenciones: ivaRetenciones,
-        aPagar: ivaEstimadoAPagar
-      },
-      kpis: {
-        ratioEquipo,
-        margenNeto,
-        concentracion,
-        minDias,
-        fondoRatio,
-        saldoFondo
-      }
+      iva: { ventas: ivaVentas, compras: ivaCompras, retenciones: ivaRetenciones, aPagar: ivaEstimadoAPagar },
+      kpis: { ratioEquipo, margenNeto, concentracion, minDias, fondoRatio, saldoFondo }
     };
-  }, [movimientos, clientes, equipo, compras, facturas]);
+  }, [movimientos, clientes, equipo, compras, facturas, cotizacion]);
 
   const isLoading = isLoadingMov || isLoadingCli || isLoadingEq || isLoadingRec || isLoadingComp || isLoadingFact;
 
@@ -233,21 +203,13 @@ export default function Dashboard() {
     );
   }
 
-  // Extraer las top cuentas para mostrarlas
   const sortedAccounts = Object.entries(stats.saldos).sort((a, b) => b[1] - a[1]);
   const topAccounts = sortedAccounts.slice(0, 4);
 
-  // Generador dinámico de alertas
   const alertas = [];
-  if (stats.kpis.minDias <= 30) {
-    alertas.push({ type: 'amber', title: 'Contrato por vencer', desc: `Un contrato activo vence en ${stats.kpis.minDias} días.` });
-  }
-  if (stats.kpis.fondoRatio < 50) {
-    alertas.push({ type: 'red', title: 'Fondo de Emergencia Bajo', desc: `Tu reserva de ${formatARS(stats.kpis.saldoFondo)} cubre menos de 3 meses operativos.` });
-  }
-  if (recuperos && recuperos.length > 0) {
-    alertas.push({ type: 'amber', title: 'Recuperos pendientes', desc: `Tenés ${recuperos.length} recuperos de gastos esperando cobranza.` });
-  }
+  if (stats.kpis.minDias <= 30) alertas.push({ type: 'amber', title: 'Contrato por vencer', desc: `Un contrato activo vence en ${stats.kpis.minDias} días.` });
+  if (stats.kpis.fondoRatio < 50) alertas.push({ type: 'red', title: 'Fondo de Emergencia Bajo', desc: `Tu reserva de ${formatARS(stats.kpis.saldoFondo)} cubre menos de 3 meses operativos.` });
+  if (recuperos && recuperos.length > 0) alertas.push({ type: 'amber', title: 'Recuperos pendientes', desc: `Tenés ${recuperos.length} recuperos de gastos esperando cobranza.` });
 
   return (
     <div className="space-y-8 animate-in fade-in duration-500">
@@ -266,8 +228,7 @@ export default function Dashboard() {
       {/* POSICIÓN DE IVA GLOBAL/ACUMULADA */}
       <section className="bg-white border border-jengibre-border p-6 rounded-2xl shadow-sm">
         <h2 className="text-lg font-display font-bold mb-4 text-gray-700 flex items-center gap-2">
-          <Landmark size={20} className="text-blue-600" />
-          Posición de IVA Acumulada
+          <Landmark size={20} className="text-blue-600" /> Posición de IVA Acumulada
         </h2>
         <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
           <div>
@@ -286,27 +247,18 @@ export default function Dashboard() {
              <p className="text-[10px] text-gray-400 mt-1 leading-tight">Registrado en cobros de Facturación</p>
           </div>
           <div className="bg-blue-50 p-4 rounded-xl border border-blue-100 flex flex-col justify-center">
-             <p className="text-sm text-blue-800 font-bold uppercase tracking-wider">
-               {stats.iva.aPagar <= 0 ? 'Saldo a favor AFIP' : 'A pagar a AFIP'}
-             </p>
-             <p className="text-2xl font-mono font-bold text-blue-900 mt-1">
-               {formatARS(Math.abs(stats.iva.aPagar))}
-             </p>
+             <p className="text-sm text-blue-800 font-bold uppercase tracking-wider">{stats.iva.aPagar <= 0 ? 'Saldo a favor AFIP' : 'A pagar a AFIP'}</p>
+             <p className="text-2xl font-mono font-bold text-blue-900 mt-1">{formatARS(Math.abs(stats.iva.aPagar))}</p>
           </div>
         </div>
       </section>
 
       {/* SALDOS POR CUENTA */}
       <section>
-        <h2 className="text-lg font-display font-bold mb-4 text-gray-700">Principales Cuentas</h2>
+        <h2 className="text-lg font-display font-bold mb-4 text-gray-700">Principales Cuentas (Eq. en Pesos)</h2>
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
           {topAccounts.map(([nombre, monto]) => (
-            <StatCard 
-              key={nombre} 
-              title={`🏦 ${nombre}`} 
-              value={formatARS(monto)} 
-              trend={monto < 0 ? 'negative' : 'neutral'} 
-            />
+            <StatCard key={nombre} title={`🏦 ${nombre}`} value={formatARS(monto)} trend={monto < 0 ? 'negative' : 'neutral'} />
           ))}
           {topAccounts.length === 0 && (
             <div className="col-span-4 p-8 text-center bg-white border rounded-xl text-gray-500">
@@ -344,44 +296,17 @@ export default function Dashboard() {
           <section>
             <h2 className="text-lg font-display font-bold mb-4 text-gray-700">Métricas de Salud</h2>
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-              <SemaforoKPI 
-                title="Ratio Equipo / Ingresos" 
-                value={`${stats.kpis.ratioEquipo.toFixed(1)}%`} 
-                label={"OK <40%"} 
-                status={stats.kpis.ratioEquipo > 50 ? 'danger' : stats.kpis.ratioEquipo > 40 ? 'alert' : 'ok'} 
-              />
-              <SemaforoKPI 
-                title="Concentración (Cliente + grande)" 
-                value={`${stats.kpis.concentracion.toFixed(1)}%`} 
-                label={"OK <30%"} 
-                status={stats.kpis.concentracion > 40 ? 'danger' : stats.kpis.concentracion > 30 ? 'alert' : 'ok'} 
-              />
-              <SemaforoKPI 
-                title="Fondo Emergencia (Obj 6 Meses)" 
-                value={`${stats.kpis.fondoRatio.toFixed(0)}%`} 
-                label={stats.kpis.fondoRatio >= 100 ? 'Completado' : 'Ahorrando'} 
-                status={stats.kpis.fondoRatio < 30 ? 'danger' : stats.kpis.fondoRatio < 80 ? 'alert' : 'ok'} 
-              />
-              <SemaforoKPI 
-                title="Margen Neto Mensual" 
-                value={`${stats.kpis.margenNeto.toFixed(1)}%`} 
-                label={"OK >25%"} 
-                status={stats.kpis.margenNeto < 10 ? 'danger' : stats.kpis.margenNeto < 25 ? 'alert' : 'ok'} 
-              />
-              <SemaforoKPI 
-                title="Días p/ próximo vencimiento" 
-                value={stats.kpis.minDias === Infinity ? '-' : `${stats.kpis.minDias}d`} 
-                label={"OK >60d"} 
-                status={stats.kpis.minDias <= 30 ? 'danger' : stats.kpis.minDias <= 60 ? 'alert' : 'ok'} 
-              />
+              <SemaforoKPI title="Ratio Equipo / Ingresos" value={`${stats.kpis.ratioEquipo.toFixed(1)}%`} label={"OK <40%"} status={stats.kpis.ratioEquipo > 50 ? 'danger' : stats.kpis.ratioEquipo > 40 ? 'alert' : 'ok'} />
+              <SemaforoKPI title="Concentración (Cliente + grande)" value={`${stats.kpis.concentracion.toFixed(1)}%`} label={"OK <30%"} status={stats.kpis.concentracion > 40 ? 'danger' : stats.kpis.concentracion > 30 ? 'alert' : 'ok'} />
+              <SemaforoKPI title="Fondo Emergencia (Obj 6 Meses)" value={`${stats.kpis.fondoRatio.toFixed(0)}%`} label={stats.kpis.fondoRatio >= 100 ? 'Completado' : 'Ahorrando'} status={stats.kpis.fondoRatio < 30 ? 'danger' : stats.kpis.fondoRatio < 80 ? 'alert' : 'ok'} />
+              <SemaforoKPI title="Margen Neto Mensual" value={`${stats.kpis.margenNeto.toFixed(1)}%`} label={"OK >25%"} status={stats.kpis.margenNeto < 10 ? 'danger' : stats.kpis.margenNeto < 25 ? 'alert' : 'ok'} />
+              <SemaforoKPI title="Días p/ próximo vencimiento" value={stats.kpis.minDias === Infinity ? '-' : `${stats.kpis.minDias}d`} label={"OK >60d"} status={stats.kpis.minDias <= 30 ? 'danger' : stats.kpis.minDias <= 60 ? 'alert' : 'ok'} />
             </div>
           </section>
         </div>
 
         {/* COLUMNA LATERAL (ALERTAS Y ACCESOS) */}
         <div className="col-span-1 space-y-6">
-          
-          {/* ACCESOS RÁPIDOS */}
           <section className="bg-jengibre-white border border-jengibre-border rounded-2xl p-5">
             <h2 className="text-lg font-display font-bold mb-4 text-gray-700">Accesos Rápidos</h2>
             <div className="space-y-3">
@@ -396,7 +321,6 @@ export default function Dashboard() {
             </div>
           </section>
 
-          {/* ALERTAS DINÁMICAS */}
           <section>
             <h2 className="text-lg font-display font-bold mb-4 text-gray-700 flex items-center gap-2">
               <AlertCircle size={20} className={alertas.length > 0 && alertas[0].type !== 'green' ? "text-jengibre-amber" : "text-jengibre-green"} /> 

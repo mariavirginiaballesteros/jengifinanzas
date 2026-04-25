@@ -1,14 +1,16 @@
 import React, { useMemo, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { supabase } from '@/integrations/supabase/client';
-import { formatARS } from '@/lib/utils';
+import { formatARS, formatUSD } from '@/lib/utils';
 import { TipAlert } from '@/components/TipAlert';
-import { Wallet, TrendingUp, TrendingDown, Activity, ChevronLeft, ChevronRight } from 'lucide-react';
+import { Wallet, ChevronLeft, ChevronRight } from 'lucide-react';
+import { useCotizacionOficial } from '@/hooks/useCotizacion';
 
 export default function SaludFinanciera() {
   const [yearSelected, setYearSelected] = useState(new Date().getFullYear());
+  const { data: cotizacionData } = useCotizacionOficial();
+  const cotizacion = cotizacionData || 1000;
 
-  // Traer todos los movimientos de caja reales
   const { data: movimientos, isLoading } = useQuery({
     queryKey: ['movimientos_salud'],
     queryFn: async () => {
@@ -21,19 +23,14 @@ export default function SaludFinanciera() {
     }
   });
 
-  // Procesar datos para los saldos y la grilla
-  const { saldos, grilla, mesesNames } = useMemo(() => {
-    if (!movimientos) return { saldos: {}, grilla: { ingresos: {}, egresos: {}, totales: {} }, mesesNames: [] };
+  const { saldos, grilla, mesesNames, totalCajaARS } = useMemo(() => {
+    if (!movimientos) return { saldos: {}, grilla: { ingresos: {}, egresos: {}, totales: {} }, mesesNames: [], totalCajaARS: 0 };
 
-    // 1. Calcular Saldos Totales Históricos
-    const saldosCalc: Record<string, number> = {};
-    movimientos.forEach(m => {
-      const monto = Number(m.monto);
-      if (!saldosCalc[m.cuenta]) saldosCalc[m.cuenta] = 0;
-      saldosCalc[m.cuenta] += m.tipo === 'ingreso' ? monto : -monto;
-    });
+    // 1. Calcular Saldos Totales (Separando ARS y USD por cuenta para visualizar ambos)
+    const saldosCalc: Record<string, { ars: number, usd: number }> = {};
+    let cajaTotalARS = 0;
 
-    // 2. Armar estructura de la grilla mensual para el AÑO SELECCIONADO
+    // 2. Grilla
     const mesesKeys = Array.from({ length: 12 }, (_, i) => `${yearSelected}-${String(i + 1).padStart(2, '0')}`);
     const mesesNames = ['Ene', 'Feb', 'Mar', 'Abr', 'May', 'Jun', 'Jul', 'Ago', 'Sep', 'Oct', 'Nov', 'Dic'];
 
@@ -41,39 +38,44 @@ export default function SaludFinanciera() {
     const egresosPorConcepto: Record<string, { data: number[] }> = {};
     const totalesMes = mesesKeys.map(() => ({ ingresos: 0, egresos: 0, neto: 0, margen: 0 }));
 
-    // Filtrar solo los movimientos del año seleccionado para la grilla
-    const movimientosAnio = movimientos.filter(m => m.fecha.startsWith(yearSelected.toString()));
-
-    movimientosAnio.forEach(m => {
-      const monto = Number(m.monto);
-      const mesPrefix = m.fecha.substring(0, 7);
-      const mesIndex = mesesKeys.indexOf(mesPrefix);
+    movimientos.forEach(m => {
+      let isUSD = false;
+      try { const p = JSON.parse(m.notas || '{}'); if (p.moneda === 'USD') isUSD = true; } catch(e){}
       
-      if (mesIndex === -1) return; // Por si hay fechas raras
+      const montoOriginal = Number(m.monto);
+      const valorEnPesos = isUSD ? montoOriginal * cotizacion : montoOriginal;
+      const factor = m.tipo === 'ingreso' ? 1 : -1;
 
-      if (m.tipo === 'ingreso') {
-        const clientId = m.cliente_id || 'sin-cliente';
-        const clientName = m.cliente?.nombre || 'Ingresos sin cliente asignado';
-        
-        if (!ingresosPorCliente[clientId]) {
-          ingresosPorCliente[clientId] = { nombre: clientName, data: Array(12).fill(0) };
+      // Calcular para cajas
+      if (!saldosCalc[m.cuenta]) saldosCalc[m.cuenta] = { ars: 0, usd: 0 };
+      if (isUSD) saldosCalc[m.cuenta].usd += montoOriginal * factor;
+      else saldosCalc[m.cuenta].ars += montoOriginal * factor;
+      
+      cajaTotalARS += valorEnPesos * factor;
+
+      // Calcular para la grilla (Solo movimientos del año y convertidos a pesos para análisis de rentabilidad)
+      if (m.fecha.startsWith(yearSelected.toString())) {
+        const mesPrefix = m.fecha.substring(0, 7);
+        const mesIndex = mesesKeys.indexOf(mesPrefix);
+        if (mesIndex === -1) return;
+
+        if (m.tipo === 'ingreso') {
+          const clientId = m.cliente_id || 'sin-cliente';
+          const clientName = m.cliente?.nombre || 'Ingresos sin cliente asignado';
+          
+          if (!ingresosPorCliente[clientId]) ingresosPorCliente[clientId] = { nombre: clientName, data: Array(12).fill(0) };
+          ingresosPorCliente[clientId].data[mesIndex] += valorEnPesos;
+          totalesMes[mesIndex].ingresos += valorEnPesos;
+        } 
+        else if (m.tipo === 'egreso') {
+          const concepto = (m.concepto || 'Varios').toUpperCase().trim();
+          if (!egresosPorConcepto[concepto]) egresosPorConcepto[concepto] = { data: Array(12).fill(0) };
+          egresosPorConcepto[concepto].data[mesIndex] += valorEnPesos;
+          totalesMes[mesIndex].egresos += valorEnPesos;
         }
-        ingresosPorCliente[clientId].data[mesIndex] += monto;
-        totalesMes[mesIndex].ingresos += monto;
-      } 
-      else if (m.tipo === 'egreso') {
-        // Agrupamos por concepto. Lo pasamos a mayúsculas para estandarizar un poco
-        const concepto = (m.concepto || 'Varios').toUpperCase().trim();
-        
-        if (!egresosPorConcepto[concepto]) {
-          egresosPorConcepto[concepto] = { data: Array(12).fill(0) };
-        }
-        egresosPorConcepto[concepto].data[mesIndex] += monto;
-        totalesMes[mesIndex].egresos += monto;
       }
     });
 
-    // Calcular Neto y Margen
     totalesMes.forEach(t => {
       t.neto = t.ingresos - t.egresos;
       t.margen = t.ingresos > 0 ? (t.neto / t.ingresos) * 100 : 0;
@@ -82,19 +84,12 @@ export default function SaludFinanciera() {
     return {
       saldos: saldosCalc,
       mesesNames,
-      grilla: {
-        ingresos: ingresosPorCliente,
-        egresos: egresosPorConcepto,
-        totales: totalesMes
-      }
+      totalCajaARS: cajaTotalARS,
+      grilla: { ingresos: ingresosPorCliente, egresos: egresosPorConcepto, totales: totalesMes }
     };
-  }, [movimientos, yearSelected]);
+  }, [movimientos, yearSelected, cotizacion]);
 
-  const totalCajaGlobal = Object.values(saldos).reduce((a, b) => a + b, 0);
-
-  // Ordenar clientes alfabéticamente
   const clientesOrdenados = Object.values(grilla.ingresos).sort((a, b) => a.nombre.localeCompare(b.nombre));
-  // Ordenar egresos de mayor a menor según el total del año
   const egresosOrdenados = Object.entries(grilla.egresos).sort((a, b) => {
     const totalA = a[1].data.reduce((x, y) => x + y, 0);
     const totalB = b[1].data.reduce((x, y) => x + y, 0);
@@ -118,7 +113,7 @@ export default function SaludFinanciera() {
       </header>
 
       <TipAlert id="salud_finanzas" title="💡 Datos basados en la realidad">
-        Esta pantalla <strong>NO lee lo facturado</strong>, sino lo que ingresaste en la pestaña "Caja". Si algo no cuadra acá, es porque falta cargarlo como movimiento cobrado o pagado en tu libro de caja.
+        Esta pantalla <strong>NO lee lo facturado</strong>, sino lo que ingresaste en la pestaña "Caja". Los valores en dólares se convierten automáticamente al Dólar Oficial BNA ({formatARS(cotizacion)}) para unificar el análisis de rentabilidad.
       </TipAlert>
 
       {/* BLOQUE DE SALDOS (BILLETERAS) */}
@@ -127,9 +122,11 @@ export default function SaludFinanciera() {
           <Wallet size={16} /> Saldos Reales por Cuenta
         </h2>
         <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-6 gap-3">
-          {Object.entries(saldos).map(([cuenta, monto]) => {
-            // Destacar cuentas clave
+          {Object.entries(saldos).map(([cuenta, montos]) => {
             const isFondo = cuenta.toUpperCase().includes('FONDO');
+            const hasArs = montos.ars !== 0;
+            const hasUsd = montos.usd !== 0;
+            
             return (
               <div key={cuenta} className={`p-4 rounded-xl border shadow-sm flex flex-col justify-center ${
                 isFondo ? 'bg-jengibre-green/10 border-jengibre-green/30' : 'bg-white border-jengibre-border'
@@ -137,15 +134,15 @@ export default function SaludFinanciera() {
                 <span className={`text-xs font-bold uppercase mb-1 ${isFondo ? 'text-jengibre-green' : 'text-gray-500'}`}>
                   {cuenta}
                 </span>
-                <span className={`text-lg font-mono font-bold ${monto < 0 ? 'text-red-500' : 'text-gray-900'}`}>
-                  {formatARS(monto)}
-                </span>
+                {hasArs && <span className={`text-lg font-mono font-bold ${montos.ars < 0 ? 'text-red-500' : 'text-gray-900'}`}>{formatARS(montos.ars)}</span>}
+                {hasUsd && <span className={`text-lg font-mono font-bold ${montos.usd < 0 ? 'text-red-500' : 'text-emerald-700'}`}>{formatUSD(montos.usd)}</span>}
+                {!hasArs && !hasUsd && <span className="text-lg font-mono font-bold text-gray-400">$ 0</span>}
               </div>
             );
           })}
           <div className="p-4 rounded-xl border border-jengibre-primary bg-jengibre-primary text-white shadow-sm flex flex-col justify-center">
-            <span className="text-xs font-bold uppercase mb-1 text-jengibre-cream opacity-80">Total Disponible</span>
-            <span className="text-lg font-mono font-bold">{formatARS(totalCajaGlobal)}</span>
+            <span className="text-xs font-bold uppercase mb-1 text-jengibre-cream opacity-80">Total Disponible (Eq. ARS)</span>
+            <span className="text-lg font-mono font-bold">{formatARS(totalCajaARS)}</span>
           </div>
         </div>
       </section>
@@ -153,7 +150,7 @@ export default function SaludFinanciera() {
       {/* MATRIZ MENSUAL ESTILO EXCEL */}
       <section className="bg-white border border-jengibre-border rounded-xl shadow-sm overflow-hidden">
         <div className="bg-[#1A2E40] text-white p-3 text-center border-b border-gray-700">
-          <h2 className="font-bold tracking-widest">JENGIBRE — REGISTRO MENSUAL REAL ({yearSelected})</h2>
+          <h2 className="font-bold tracking-widest">JENGIBRE — REGISTRO MENSUAL REAL EQUIVALENTE A PESOS ({yearSelected})</h2>
         </div>
         
         <div className="overflow-x-auto">

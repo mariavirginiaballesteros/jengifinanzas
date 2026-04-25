@@ -5,8 +5,8 @@ import { TipAlert } from '@/components/TipAlert';
 import { TrendingUp, TrendingDown, DollarSign, PieChart, ArrowRight, Calendar, LineChart, AlertTriangle, Info, Edit2, Settings } from 'lucide-react';
 import { formatARS } from '@/lib/utils';
 import { showSuccess, showError } from '@/utils/toast';
+import { useCotizacionOficial } from '@/hooks/useCotizacion';
 
-// Helper de notas del equipo
 const parseNotas = (notasStr: string | null) => {
   if (!notasStr) return { asignaciones: {} as Record<string, number> };
   try {
@@ -23,11 +23,12 @@ export default function Proyeccion() {
     return `${hoy.getFullYear()}-${String(hoy.getMonth() + 1).padStart(2, '0')}`;
   });
 
-  // Estado para el modal de Gastos Fijos
   const [fijosModalOpen, setFijosModalOpen] = useState(false);
   const [fijosInput, setFijosInput] = useState('');
+  
+  const { data: cotizacionData } = useCotizacionOficial();
+  const cotizacion = cotizacionData || 1000;
 
-  // Queries principales
   const { data: facturas, isLoading: loadingFacturas } = useQuery({
     queryKey: ['proyeccion_facturacion', mesSeleccionado],
     queryFn: async () => {
@@ -35,12 +36,7 @@ export default function Proyeccion() {
       const start = `${year}-${month}-01`;
       const end = new Date(Number(year), Number(month), 0).toISOString().split('T')[0];
 
-      const { data, error } = await supabase
-        .from('facturacion')
-        .select(`*, cliente:clientes(nombre)`)
-        .gte('mes', start)
-        .lte('mes', end);
-      
+      const { data, error } = await supabase.from('facturacion').select(`*, cliente:clientes(nombre)`).gte('mes', start).lte('mes', end);
       if (error) throw error;
       return data;
     }
@@ -58,22 +54,16 @@ export default function Proyeccion() {
   const { data: clientes, isLoading: loadingClientes } = useQuery({
     queryKey: ['proyeccion_clientes'],
     queryFn: async () => {
-      const { data, error } = await supabase.from('clientes').select('id, nombre, estado, monto_ars, fecha_inicio, fecha_fin').eq('estado', 'activo');
+      const { data, error } = await supabase.from('clientes').select('id, nombre, estado, monto_ars, monto_usd, fecha_inicio, fecha_fin').eq('estado', 'activo');
       if (error) throw error;
       return data;
     }
   });
 
-  // Query para traer los gastos fijos guardados en configuración
   const { data: configFijos, isLoading: loadingFijos } = useQuery({
     queryKey: ['configuracion', 'gastos_fijos_estimados'],
     queryFn: async () => {
-      const { data, error } = await supabase
-        .from('configuracion')
-        .select('id, valor')
-        .eq('clave', 'gastos_fijos_estimados')
-        .maybeSingle();
-      
+      const { data, error } = await supabase.from('configuracion').select('id, valor').eq('clave', 'gastos_fijos_estimados').maybeSingle();
       if (error && error.code !== 'PGRST116') throw error;
       return data;
     }
@@ -81,7 +71,6 @@ export default function Proyeccion() {
 
   const gastosFijos = Number(configFijos?.valor || 0);
 
-  // Mutación para guardar los gastos fijos
   const saveFijosMutation = useMutation({
     mutationFn: async (val: string) => {
       const payload = { clave: 'gastos_fijos_estimados', valor: val, descripcion: 'Gastos fijos extra para la proyección' };
@@ -101,24 +90,21 @@ export default function Proyeccion() {
     onError: (err: any) => showError(err.message)
   });
 
-  // 1. Cálculos de ESTE MES SELECCIONADO
   const stats = useMemo(() => {
     if (!facturas || !equipo || !clientes) return { ingresosFacturados: 0, mrrEsperado: 0, egresosEquipo: 0, egresosTotales: 0, gastosFijos: 0, resultado: 0, margen: 0, listadoEquipo: [] };
 
-    // Total Facturado (Sacado del cronograma de facturas REAL de este mes)
     const ingresosFacturados = facturas.reduce((acc, f) => acc + Number(f.monto_final || f.monto_base || 0), 0);
 
-    // MRR Teórico (Sacado de los abonos base de los clientes vigentes este mes)
     let mrrEsperado = 0;
     clientes.forEach((c: any) => {
       const finString = c.fecha_fin ? c.fecha_fin.substring(0, 7) : '9999-99';
       const inicioString = c.fecha_inicio ? c.fecha_inicio.substring(0, 7) : '0000-00';
       if (finString >= mesSeleccionado && inicioString <= mesSeleccionado) {
-        mrrEsperado += Number(c.monto_ars || 0);
+        // Acá contemplamos tanto el monto ARS como el monto USD convertido al Oficial
+        mrrEsperado += Number(c.monto_ars || 0) + (Number(c.monto_usd || 0) * cotizacion);
       }
     });
 
-    // Total Egresos Equipo
     const listadoEquipo = equipo.map(miembro => {
       const notasData = parseNotas(miembro.notas);
       let costoProyectos = 0;
@@ -143,15 +129,12 @@ export default function Proyeccion() {
     const egresosEquipo = listadoEquipo.reduce((acc, m) => acc + m.total, 0);
     const egresosTotales = egresosEquipo + gastosFijos;
 
-    // Resultado Económico usando la FACTURACIÓN PROGRAMADA (Ingresos reales - Costos Totales)
     const resultado = ingresosFacturados - egresosTotales;
     const margen = ingresosFacturados > 0 ? (resultado / ingresosFacturados) * 100 : 0;
 
     return { ingresosFacturados, mrrEsperado, egresosEquipo, egresosTotales, gastosFijos, resultado, margen, listadoEquipo };
-  }, [facturas, equipo, clientes, mesSeleccionado, gastosFijos]);
+  }, [facturas, equipo, clientes, mesSeleccionado, gastosFijos, cotizacion]);
 
-
-  // 2. Cálculos para PROYECCIÓN ANUAL (12 Meses Vista)
   const anualStats = useMemo(() => {
     if (!clientes || !equipo) return [];
     
@@ -175,16 +158,13 @@ export default function Proyeccion() {
          const inicioString = c.fecha_inicio ? c.fecha_inicio.substring(0, 7) : '0000-00';
          
          if (finString >= mesString && inicioString <= mesString) {
-            ingresos += Number(c.monto_ars || 0);
+            ingresos += Number(c.monto_ars || 0) + (Number(c.monto_usd || 0) * cotizacion);
             clientesActivosMes.add(c.id);
             if (finString === mesString) vencimientos.push(c.nombre);
          }
       });
 
-      // Iniciamos los costos con los Gastos Fijos (Impuestos, Contadora, etc)
       let costos = gastosFijos; 
-      
-      // Sumamos el equipo
       equipo.forEach((e: any) => {
          costos += Number(e.honorario_mensual || 0);
          const notas = parseNotas(e.notas);
@@ -198,16 +178,11 @@ export default function Proyeccion() {
       const nombreMes = date.toLocaleDateString('es-AR', { month: 'long', year: 'numeric' });
 
       return {
-        id: mesString,
-        label: `${nombreMes.charAt(0).toUpperCase() + nombreMes.slice(1)} ${year}`,
-        ingresos,
-        costos,
-        neto,
-        margen,
-        vencimientos
+        id: mesString, label: `${nombreMes.charAt(0).toUpperCase() + nombreMes.slice(1)} ${year}`,
+        ingresos, costos, neto, margen, vencimientos
       };
     });
-  }, [clientes, equipo, gastosFijos]);
+  }, [clientes, equipo, gastosFijos, cotizacion]);
 
   const isLoading = loadingFacturas || loadingEquipo || loadingClientes || loadingFijos;
 
@@ -236,13 +211,12 @@ export default function Proyeccion() {
 
       <TipAlert id="proyeccion_origen_datos" title="💡 ¿De dónde salen estos números?">
         <ul className="list-disc pl-5 space-y-1 mt-2 text-sm text-gray-700">
-          <li><strong>Facturación Real:</strong> Suma exactamente las cuotas que ya generaste en la pestaña <em>Facturación</em> para este mes.</li>
-          <li><strong>MRR Teórico:</strong> Suma los abonos base cargados en el perfil de cada empresa en <em>Clientes</em>. Sirve para saber cuánto deberías estar facturando.</li>
-          <li><strong>Egresos Totales:</strong> Suma lo que le pagás al equipo + un monto configurable de <em>Gastos Fijos</em> para contemplar Monotributo, Estudio Contable, Software, etc.</li>
+          <li><strong>Facturación Real:</strong> Suma las cuotas que ya generaste en la pestaña <em>Facturación</em> para este mes.</li>
+          <li><strong>MRR Teórico:</strong> Suma los abonos base de los clientes. <em>(Los montos en USD se convierten dinámicamente al tipo de cambio oficial BNA para la proyección).</em></li>
+          <li><strong>Egresos Totales:</strong> Suma lo que le pagás al equipo + los <em>Gastos Fijos Estimados</em>.</li>
         </ul>
       </TipAlert>
 
-      {/* MODAL GASTOS FIJOS */}
       {fijosModalOpen && (
         <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4">
           <div className="bg-white rounded-2xl w-full max-w-md p-6 shadow-xl animate-in zoom-in-95">
@@ -278,7 +252,6 @@ export default function Proyeccion() {
       {/* TARJETAS DE RESUMEN DEL MES SELECCIONADO */}
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 mb-8">
         
-        {/* TARJETA DE INGRESOS (FACTURADO VS MRR) */}
         <div className="bg-white border border-jengibre-border p-5 rounded-2xl shadow-sm relative overflow-hidden">
           <div className="absolute top-0 right-0 p-3 opacity-10"><TrendingUp size={48} /></div>
           <div className="flex items-center gap-2 text-gray-500 mb-2">
@@ -289,14 +262,13 @@ export default function Proyeccion() {
           <p className="text-[11px] text-gray-500 mt-1">Suma de la pestaña Facturación</p>
           
           <div className="mt-4 pt-3 border-t border-gray-100 flex justify-between items-center">
-            <span className="text-[11px] font-bold text-gray-500 uppercase tracking-wider flex items-center gap-1">
+            <span className="text-[11px] font-bold text-gray-500 uppercase tracking-wider flex items-center gap-1" title="Suma todos los abonos en ARS y USD convertidos a pesos">
               <Info size={12} /> MRR Teórico (Abonos)
             </span>
             <span className="font-mono font-bold text-gray-700 text-sm">{isLoading ? '...' : formatARS(stats.mrrEsperado)}</span>
           </div>
         </div>
 
-        {/* TARJETA DE EGRESOS TOTALES */}
         <div className="bg-white border border-jengibre-border p-5 rounded-2xl shadow-sm relative group">
           <div className="flex items-center justify-between mb-2">
             <div className="flex items-center gap-2 text-gray-500">
@@ -306,20 +278,17 @@ export default function Proyeccion() {
             <button 
               onClick={handleOpenFijos} 
               className="text-[10px] flex items-center gap-1 text-blue-600 hover:text-blue-800 bg-blue-50 px-2 py-1 rounded font-bold transition-colors"
-              title="Ajustar gastos fijos extra (Monotributo, etc.)"
             >
               <Edit2 size={10} /> Editar Fijos
             </button>
           </div>
           <p className="text-3xl font-mono font-bold text-gray-900">{isLoading ? '...' : formatARS(stats.egresosTotales)}</p>
-          
           <div className="mt-4 pt-3 border-t border-gray-100 flex justify-between items-center text-[11px]">
             <span className="text-gray-500">Equipo: <strong className="text-gray-800 font-mono text-xs">{formatARS(stats.egresosEquipo)}</strong></span>
             <span className="text-gray-500">Fijos: <strong className="text-gray-800 font-mono text-xs">{formatARS(stats.gastosFijos)}</strong></span>
           </div>
         </div>
 
-        {/* TARJETA DE RESULTADO */}
         <div className={`border p-5 rounded-2xl shadow-sm flex flex-col justify-between ${stats.resultado >= 0 ? 'bg-jengibre-green/10 border-jengibre-green/30' : 'bg-red-50 border-red-200'}`}>
           <div>
             <div className="flex items-center gap-2 text-gray-600 mb-2">
@@ -333,7 +302,6 @@ export default function Proyeccion() {
           <p className="text-[11px] opacity-70 mt-3 font-medium border-t border-black/5 pt-2">Facturado - Egresos Totales</p>
         </div>
 
-        {/* TARJETA DE MARGEN */}
         <div className="bg-jengibre-dark text-white p-5 rounded-2xl shadow-sm flex flex-col justify-between">
           <div>
             <div className="flex items-center gap-2 text-gray-300 mb-2">
@@ -348,7 +316,6 @@ export default function Proyeccion() {
 
       {/* DETALLES DEL MES SELECCIONADO */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
-        {/* COLUMNA INGRESOS */}
         <div className="bg-white border border-jengibre-border rounded-2xl overflow-hidden shadow-sm flex flex-col">
           <div className="bg-gray-50 px-5 py-4 border-b border-gray-100 flex items-center justify-between">
             <div>
@@ -390,7 +357,6 @@ export default function Proyeccion() {
           </div>
         </div>
 
-        {/* COLUMNA EGRESOS */}
         <div className="bg-white border border-jengibre-border rounded-2xl overflow-hidden shadow-sm flex flex-col">
           <div className="bg-gray-50 px-5 py-4 border-b border-gray-100 flex items-center justify-between">
             <div>
@@ -423,7 +389,6 @@ export default function Proyeccion() {
                       </td>
                     </tr>
                   ))}
-                  {/* Fila Fija Extra para que coincida la suma visual */}
                   <tr className="border-t-2 border-gray-100 bg-gray-50">
                     <td className="px-5 py-4">
                       <p className="font-bold text-gray-700">Costos Fijos / Mantenimiento</p>
@@ -440,7 +405,6 @@ export default function Proyeccion() {
         </div>
       </div>
 
-      {/* NUEVO BLOQUE: PROYECCIÓN ANUAL MRR */}
       <section className="mt-12 animate-in fade-in slide-in-from-bottom-4">
         <div className="mb-6 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
           <div>

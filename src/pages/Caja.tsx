@@ -2,14 +2,28 @@ import React, { useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { supabase } from '@/integrations/supabase/client';
 import { TipAlert } from '@/components/TipAlert';
-import { Plus, Edit2, Trash2, ArrowUpRight, ArrowDownRight, Wallet } from 'lucide-react';
-import { formatARS } from '@/lib/utils';
+import { Plus, Edit2, Trash2, ArrowUpRight, ArrowDownRight, Wallet, DollarSign } from 'lucide-react';
+import { formatARS, formatUSD } from '@/lib/utils';
 import { showSuccess, showError } from '@/utils/toast';
+import { useCotizacionOficial } from '@/hooks/useCotizacion';
+
+// Helper para guardar moneda junto a las notas
+const parseNotas = (notasStr: string | null) => {
+  if (!notasStr) return { texto: '', moneda: 'ARS' };
+  try {
+    const parsed = JSON.parse(notasStr);
+    if (parsed && typeof parsed === 'object') {
+      return { texto: parsed.texto || '', moneda: parsed.moneda || 'ARS' };
+    }
+  } catch(e) {}
+  return { texto: notasStr || '', moneda: 'ARS' };
+};
 
 export default function Caja() {
   const queryClient = useQueryClient();
   const [isFormOpen, setIsFormOpen] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
+  const { data: cotizacionOficial } = useCotizacionOficial();
   
   const defaultForm = {
     fecha: new Date().toISOString().split('T')[0],
@@ -19,20 +33,16 @@ export default function Caja() {
     cuenta: '',
     cliente_id: '',
     tiene_iva: false,
-    notas: ''
+    notasTexto: '',
+    moneda: 'ARS'
   };
-  const [formData, setFormData] = useState<any>(defaultForm);
+  const [formData, setFormData] = useState(defaultForm);
 
   // 1. Traer Billeteras dinámicas de configuración
   const { data: cuentasConfig } = useQuery({
     queryKey: ['cuentas_activas'],
     queryFn: async () => {
-      const { data, error } = await supabase
-        .from('configuracion')
-        .select('valor')
-        .eq('clave', 'cuentas_caja')
-        .maybeSingle();
-      
+      const { data, error } = await supabase.from('configuracion').select('valor').eq('clave', 'cuentas_caja').maybeSingle();
       if (error) throw error;
       if (data?.valor) {
         try { return JSON.parse(data.valor); } catch { return ['Macro', 'IVA', 'MP Mauro', 'MP Fondo', 'Efectivo']; }
@@ -68,8 +78,18 @@ export default function Caja() {
   });
 
   const saveMutation = useMutation({
-    mutationFn: async (movData: any) => {
-      const payload = { ...movData, cliente_id: movData.cliente_id || null };
+    mutationFn: async (movData: typeof formData) => {
+      const jsonNotas = JSON.stringify({ texto: movData.notasTexto, moneda: movData.moneda });
+      const payload = { 
+        fecha: movData.fecha,
+        tipo: movData.tipo,
+        concepto: movData.concepto,
+        monto: Number(movData.monto),
+        cuenta: movData.cuenta,
+        cliente_id: movData.cliente_id || null,
+        tiene_iva: movData.tiene_iva,
+        notas: jsonNotas
+      };
       
       if (editingId) {
         const { error } = await supabase.from('movimientos').update(payload).eq('id', editingId);
@@ -95,36 +115,34 @@ export default function Caja() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['movimientos'] });
       showSuccess('Movimiento eliminado');
-    },
-    onError: (err: any) => showError(err.message)
+    }
   });
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    if (!formData.monto || formData.monto <= 0) return showError('El monto debe ser mayor a 0');
+    if (!formData.monto || Number(formData.monto) <= 0) return showError('El monto debe ser mayor a 0');
     if (!formData.cuenta) return showError('Debes seleccionar una cuenta bancaria');
     saveMutation.mutate(formData);
   };
 
   const openNewForm = () => {
-    setFormData({
-      ...defaultForm,
-      cuenta: cuentasList[0] || 'Macro'
-    });
+    setFormData({ ...defaultForm, cuenta: cuentasList[0] || 'Macro' });
     setEditingId(null);
     setIsFormOpen(true);
   };
 
   const openEdit = (mov: any) => {
+    const notasParsed = parseNotas(mov.notas);
     setFormData({
       fecha: mov.fecha,
       tipo: mov.tipo,
       concepto: mov.concepto,
-      monto: mov.monto,
+      monto: mov.monto.toString(),
       cuenta: mov.cuenta,
       cliente_id: mov.cliente_id || '',
       tiene_iva: mov.tiene_iva || false,
-      notas: mov.notas || ''
+      notasTexto: notasParsed.texto,
+      moneda: notasParsed.moneda
     });
     setEditingId(mov.id);
     setIsFormOpen(true);
@@ -151,9 +169,8 @@ export default function Caja() {
         </button>
       </header>
 
-      <TipAlert id="caja_intro" title="💡 Tip de uso: Cuentas y Transferencias">
-        Registrá acá la plata que <strong>realmente entró o salió</strong> de las cuentas bancarias o billeteras virtuales. 
-        Podés administrar la lista de billeteras disponibles desde el menú "Configuración".
+      <TipAlert id="caja_usd" title="💡 Ingresos en Dólares">
+        Al registrar un movimiento, podés seleccionar la moneda. Si marcás <strong>USD</strong>, la plataforma lo va a convertir automáticamente al <strong>Dólar Oficial BNA</strong> en tus dashboards para mostrarte la equivalencia real en pesos sin mezclar las monedas.
       </TipAlert>
 
       {isFormOpen && (
@@ -165,73 +182,54 @@ export default function Caja() {
             <form onSubmit={handleSubmit} className="space-y-4">
               
               <div className="flex bg-gray-100 p-1 rounded-lg mb-4">
-                <button
-                  type="button"
-                  onClick={() => setFormData({...formData, tipo: 'ingreso'})}
-                  className={`flex-1 py-2 rounded-md text-sm font-bold transition-colors ${formData.tipo === 'ingreso' ? 'bg-white shadow-sm text-jengibre-green' : 'text-gray-500'}`}
-                >
-                  Ingreso
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setFormData({...formData, tipo: 'egreso'})}
-                  className={`flex-1 py-2 rounded-md text-sm font-bold transition-colors ${formData.tipo === 'egreso' ? 'bg-white shadow-sm text-jengibre-red' : 'text-gray-500'}`}
-                >
-                  Egreso
-                </button>
+                <button type="button" onClick={() => setFormData({...formData, tipo: 'ingreso'})} className={`flex-1 py-2 rounded-md text-sm font-bold transition-colors ${formData.tipo === 'ingreso' ? 'bg-white shadow-sm text-jengibre-green' : 'text-gray-500'}`}>Ingreso</button>
+                <button type="button" onClick={() => setFormData({...formData, tipo: 'egreso'})} className={`flex-1 py-2 rounded-md text-sm font-bold transition-colors ${formData.tipo === 'egreso' ? 'bg-white shadow-sm text-jengibre-red' : 'text-gray-500'}`}>Egreso</button>
               </div>
 
               <div className="grid grid-cols-2 gap-4">
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-1">Fecha</label>
-                  <input 
-                    type="date" required
-                    className="w-full border border-gray-300 rounded-lg p-2.5 focus:ring-2 focus:ring-jengibre-primary outline-none" 
-                    value={formData.fecha} onChange={e => setFormData({...formData, fecha: e.target.value})}
-                  />
+                  <input type="date" required className="w-full border border-gray-300 rounded-lg p-2.5 focus:ring-2 focus:ring-jengibre-primary outline-none" value={formData.fecha} onChange={e => setFormData({...formData, fecha: e.target.value})} />
                 </div>
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">Cuenta</label>
-                  <select 
-                    className="w-full border border-gray-300 rounded-lg p-2.5 focus:ring-2 focus:ring-jengibre-primary outline-none bg-white"
-                    value={formData.cuenta} onChange={e => setFormData({...formData, cuenta: e.target.value})}
-                    required
-                  >
+                  <label className="block text-sm font-medium text-gray-700 mb-1">Cuenta Bancaria / Billetera</label>
+                  <select className="w-full border border-gray-300 rounded-lg p-2.5 focus:ring-2 focus:ring-jengibre-primary outline-none bg-white" value={formData.cuenta} onChange={e => setFormData({...formData, cuenta: e.target.value})} required>
                     <option value="" disabled>Seleccioná...</option>
                     {cuentasList.map(c => <option key={c} value={c}>{c}</option>)}
                   </select>
                 </div>
               </div>
 
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">Monto (ARS)</label>
-                <div className="relative">
-                  <span className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-500 font-bold">$</span>
-                  <input 
-                    type="number" required min="0" step="0.01"
-                    className="w-full border border-gray-300 rounded-lg p-2.5 pl-8 focus:ring-2 focus:ring-jengibre-primary outline-none font-mono text-lg" 
-                    value={formData.monto} onChange={e => setFormData({...formData, monto: e.target.value})}
-                  />
+              <div className="grid grid-cols-3 gap-4 items-end">
+                <div className="col-span-1">
+                  <label className="block text-sm font-medium text-gray-700 mb-1">Moneda</label>
+                  <select className="w-full border border-gray-300 rounded-lg p-2.5 focus:ring-2 focus:ring-jengibre-primary outline-none font-bold" value={formData.moneda} onChange={e => setFormData({...formData, moneda: e.target.value})}>
+                    <option value="ARS">ARS ($)</option>
+                    <option value="USD">USD (u$s)</option>
+                  </select>
+                </div>
+                <div className="col-span-2">
+                  <label className="block text-sm font-medium text-gray-700 mb-1">Monto</label>
+                  <div className="relative">
+                    <span className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-500 font-bold">{formData.moneda === 'ARS' ? '$' : 'u$s'}</span>
+                    <input type="number" required min="0" step="0.01" className="w-full border border-gray-300 rounded-lg p-2.5 pl-9 focus:ring-2 focus:ring-jengibre-primary outline-none font-mono text-lg" value={formData.monto} onChange={e => setFormData({...formData, monto: e.target.value})} />
+                  </div>
                 </div>
               </div>
 
+              {formData.moneda === 'USD' && cotizacionOficial && (
+                <p className="text-xs text-blue-600 font-medium">Cotización BNA Oficial: {formatARS(cotizacionOficial)} (Total equiv: {formatARS(Number(formData.monto) * cotizacionOficial)})</p>
+              )}
+
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1">Concepto</label>
-                <input 
-                  required
-                  className="w-full border border-gray-300 rounded-lg p-2.5 focus:ring-2 focus:ring-jengibre-primary outline-none" 
-                  value={formData.concepto} onChange={e => setFormData({...formData, concepto: e.target.value})}
-                  placeholder={formData.tipo === 'ingreso' ? 'Ej: Honorarios mensuales' : 'Ej: Pago sueldos, Software, etc.'}
-                />
+                <input required className="w-full border border-gray-300 rounded-lg p-2.5 focus:ring-2 focus:ring-jengibre-primary outline-none" value={formData.concepto} onChange={e => setFormData({...formData, concepto: e.target.value})} placeholder="Ej: Honorarios mensuales" />
               </div>
 
               {formData.tipo === 'ingreso' && (
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-1">Cliente (Opcional)</label>
-                  <select 
-                    className="w-full border border-gray-300 rounded-lg p-2.5 focus:ring-2 focus:ring-jengibre-primary outline-none bg-white"
-                    value={formData.cliente_id} onChange={e => setFormData({...formData, cliente_id: e.target.value})}
-                  >
+                  <select className="w-full border border-gray-300 rounded-lg p-2.5 focus:ring-2 focus:ring-jengibre-primary outline-none bg-white" value={formData.cliente_id} onChange={e => setFormData({...formData, cliente_id: e.target.value})}>
                     <option value="">-- Ninguno / Otro ingreso --</option>
                     {clientes?.map((c: any) => <option key={c.id} value={c.id}>{c.nombre}</option>)}
                   </select>
@@ -240,31 +238,18 @@ export default function Caja() {
 
               {formData.tipo === 'ingreso' && (
                 <div className="bg-gray-50 p-3 rounded-lg border border-gray-200 flex items-center gap-3">
-                  <input 
-                    type="checkbox" id="tiene_iva" 
-                    className="w-5 h-5 rounded border-gray-300 text-jengibre-primary focus:ring-jengibre-primary"
-                    checked={formData.tiene_iva} 
-                    onChange={e => setFormData({...formData, tiene_iva: e.target.checked})}
-                  />
-                  <label htmlFor="tiene_iva" className="text-sm text-gray-700 font-medium cursor-pointer select-none">
-                    Este ingreso incluye IVA (21%) facturado
-                  </label>
+                  <input type="checkbox" id="tiene_iva" className="w-5 h-5 rounded border-gray-300 text-jengibre-primary focus:ring-jengibre-primary" checked={formData.tiene_iva} onChange={e => setFormData({...formData, tiene_iva: e.target.checked})} />
+                  <label htmlFor="tiene_iva" className="text-sm text-gray-700 font-medium cursor-pointer select-none">Este ingreso incluye IVA (21%) facturado</label>
                 </div>
               )}
 
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">Notas adicionales (Opcional)</label>
-                <textarea 
-                  className="w-full border border-gray-300 rounded-lg p-2.5 focus:ring-2 focus:ring-jengibre-primary outline-none" 
-                  value={formData.notas} onChange={e => setFormData({...formData, notas: e.target.value})}
-                  rows={2}
-                />
+                <label className="block text-sm font-medium text-gray-700 mb-1">Notas adicionales</label>
+                <textarea className="w-full border border-gray-300 rounded-lg p-2.5 focus:ring-2 focus:ring-jengibre-primary outline-none" value={formData.notasTexto} onChange={e => setFormData({...formData, notasTexto: e.target.value})} rows={2} />
               </div>
 
               <div className="flex justify-end gap-3 mt-8 pt-4 border-t border-gray-100">
-                <button type="button" onClick={closeForm} className="px-4 py-2 text-gray-600 hover:bg-gray-100 rounded-lg font-medium transition-colors">
-                  Cancelar
-                </button>
+                <button type="button" onClick={closeForm} className="px-4 py-2 text-gray-600 hover:bg-gray-100 rounded-lg font-medium transition-colors">Cancelar</button>
                 <button type="submit" disabled={saveMutation.isPending} className="bg-jengibre-primary hover:bg-[#a64120] text-white px-6 py-2 rounded-lg font-medium transition-colors disabled:opacity-50">
                   {saveMutation.isPending ? 'Guardando...' : 'Guardar Movimiento'}
                 </button>
@@ -280,11 +265,9 @@ export default function Caja() {
           <div className="flex justify-center py-12"><div className="w-8 h-8 border-4 border-jengibre-primary border-t-transparent rounded-full animate-spin"></div></div>
         ) : movimientos?.length === 0 ? (
           <div className="p-12 text-center">
-            <div className="bg-gray-50 w-16 h-16 rounded-full flex items-center justify-center mx-auto mb-4 text-gray-400">
-              <Wallet size={32} />
-            </div>
+            <div className="bg-gray-50 w-16 h-16 rounded-full flex items-center justify-center mx-auto mb-4 text-gray-400"><Wallet size={32} /></div>
             <h3 className="text-xl font-bold text-gray-800 mb-2">Libro de caja vacío</h3>
-            <p className="text-gray-500">Todavía no registraste ningún movimiento en tus cuentas.</p>
+            <p className="text-gray-500">Todavía no registraste ningún movimiento.</p>
           </div>
         ) : (
           <div className="overflow-x-auto">
@@ -301,6 +284,8 @@ export default function Caja() {
               <tbody>
                 {movimientos?.map((mov) => {
                   const isIngreso = mov.tipo === 'ingreso';
+                  const notasParsed = parseNotas(mov.notas);
+                  const isUSD = notasParsed.moneda === 'USD';
                   const dateFormatted = new Date(mov.fecha).toLocaleDateString('es-AR', { day: '2-digit', month: 'short' });
                   
                   return (
@@ -319,19 +304,21 @@ export default function Caja() {
                       </td>
                       <td className="px-4 py-4 text-sm">
                         <span className="bg-gray-100 text-gray-700 px-2.5 py-1 rounded-md font-medium">{mov.cuenta}</span>
-                        {mov.tiene_iva && <span className="ml-2 text-[10px] bg-blue-100 text-blue-700 px-1.5 py-0.5 rounded font-bold uppercase">IVA</span>}
+                        {isUSD && <span className="ml-2 text-[10px] bg-emerald-100 text-emerald-800 px-1.5 py-0.5 rounded font-bold">USD</span>}
                       </td>
                       <td className={`px-4 py-4 text-right font-mono font-bold whitespace-nowrap ${isIngreso ? 'text-green-700' : 'text-gray-900'}`}>
-                        {isIngreso ? '+' : '-'}{formatARS(mov.monto)}
+                        {isIngreso ? '+' : '-'}
+                        {isUSD ? formatUSD(mov.monto) : formatARS(mov.monto)}
+                        {isUSD && cotizacionOficial && (
+                          <p className="text-[10px] text-gray-400 font-medium font-sans mt-1">
+                            ≈ {formatARS(mov.monto * cotizacionOficial)}
+                          </p>
+                        )}
                       </td>
                       <td className="px-4 py-4">
                         <div className="flex items-center justify-center gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
-                          <button onClick={() => openEdit(mov)} className="p-1.5 text-gray-400 hover:text-blue-600 hover:bg-blue-50 rounded-lg">
-                            <Edit2 size={16} />
-                          </button>
-                          <button onClick={() => { if(confirm('¿Eliminar movimiento?')) deleteMutation.mutate(mov.id); }} className="p-1.5 text-gray-400 hover:text-red-600 hover:bg-red-50 rounded-lg">
-                            <Trash2 size={16} />
-                          </button>
+                          <button onClick={() => openEdit(mov)} className="p-1.5 text-gray-400 hover:text-blue-600 hover:bg-blue-50 rounded-lg"><Edit2 size={16} /></button>
+                          <button onClick={() => { if(confirm('¿Eliminar movimiento?')) deleteMutation.mutate(mov.id); }} className="p-1.5 text-gray-400 hover:text-red-600 hover:bg-red-50 rounded-lg"><Trash2 size={16} /></button>
                         </div>
                       </td>
                     </tr>
