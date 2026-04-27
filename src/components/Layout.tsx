@@ -4,7 +4,7 @@ import { useAuth } from '@/contexts/AuthContext';
 import { 
   Home, Briefcase, Users, DollarSign, RefreshCw, 
   ShoppingCart, TrendingUp, Heart, MessageSquare, 
-  Settings, LogOut, Menu, X, FileText
+  Settings, LogOut, Menu, X, FileText, Calculator
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 
@@ -24,6 +24,7 @@ export default function Layout() {
     { to: "/recuperos", icon: <RefreshCw size={20} />, label: "Recuperos" },
     { to: "/compras", icon: <ShoppingCart size={20} />, label: "Compras (IVA)" },
     { to: "/proyeccion", icon: <TrendingUp size={20} />, label: "Proyección" },
+    { to: "/cotizador", icon: <Calculator size={20} />, label: "Cotizador" },
     { to: "/salud", icon: <Heart size={20} />, label: "Salud Financiera" },
     { to: "/contadora", icon: <MessageSquare size={20} />, label: "Contadora" },
     { to: "/configuracion", icon: <Settings size={20} />, label: "Configuración" },
@@ -36,7 +37,6 @@ export default function Layout() {
         className="w-72 text-white hidden md:flex flex-col flex-shrink-0 relative z-20 border-r border-white/10 shadow-2xl bg-cover bg-left"
         style={{ backgroundColor: '#2B317A', backgroundImage: "url('/fondo.jpg')" }}
       >
-        {/* Overlay oscuro para la barra lateral y que el texto resalte */}
         <div className="absolute inset-0 bg-[#2B317A]/90 z-0"></div>
         
         <div className="p-8 flex flex-col items-center text-center gap-4 border-b border-white/10 relative z-10">

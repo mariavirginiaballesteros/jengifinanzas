@@ -15,6 +15,7 @@ import Recuperos from "./pages/Recuperos";
 import Compras from "./pages/Compras";
 import Proyeccion from "./pages/Proyeccion";
 import SaludFinanciera from "./pages/SaludFinanciera";
+import Cotizador from "./pages/Cotizador";
 import Configuracion from "./pages/Configuracion";
 import Contadora from "./pages/Contadora";
 import NotFound from "./pages/NotFound";
@@ -41,6 +42,7 @@ const App = () => (
               <Route path="/compras" element={<Compras />} />
               <Route path="/proyeccion" element={<Proyeccion />} />
               <Route path="/salud" element={<SaludFinanciera />} />
+              <Route path="/cotizador" element={<Cotizador />} />
               <Route path="/contadora" element={<Contadora />} />
               <Route path="/configuracion" element={<Configuracion />} />
             </Route>
