@@ -1,17 +1,28 @@
 import React, { useState, useMemo } from 'react';
-import { useQuery } from '@tanstack/react-query';
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { supabase } from '@/integrations/supabase/client';
-import { Calculator, Users, Building, TrendingUp, DollarSign, Plus, Trash2, Copy, Percent, Layers, ShieldCheck } from 'lucide-react';
+import { Calculator, Users, Building, TrendingUp, DollarSign, Plus, Trash2, Copy, Percent, Layers, ShieldCheck, Save, Clock, History } from 'lucide-react';
 import { formatARS, formatUSD } from '@/lib/utils';
 import { TipAlert } from '@/components/TipAlert';
 import { useCotizacionOficial } from '@/hooks/useCotizacion';
-import { showSuccess } from '@/utils/toast';
+import { showSuccess, showError } from '@/utils/toast';
+
+// Helper para leer las asignaciones de proyectos del equipo
+const parseNotas = (notasStr: string | null) => {
+  if (!notasStr) return { asignaciones: {} as Record<string, number> };
+  try {
+    const parsed = JSON.parse(notasStr);
+    if (parsed && typeof parsed === 'object' && parsed.asignaciones) return parsed;
+  } catch (e) {}
+  return { asignaciones: {} };
+};
 
 export default function Cotizador() {
+  const queryClient = useQueryClient();
   const { data: cotizacionData } = useCotizacionOficial();
   const cotizacion = cotizacionData || 1000;
 
-  // 1. Datos de la base de datos
+  // --- DATOS BASE ---
   const { data: equipo, isLoading: loadingEq } = useQuery({
     queryKey: ['equipo_cotizador'],
     queryFn: async () => {
@@ -24,7 +35,7 @@ export default function Cotizador() {
   const { data: clientes, isLoading: loadingCli } = useQuery({
     queryKey: ['clientes_cotizador'],
     queryFn: async () => {
-      const { data, error } = await supabase.from('clientes').select('id').eq('estado', 'activo');
+      const { data, error } = await supabase.from('clientes').select('id, estado').eq('estado', 'activo');
       if (error) throw error;
       return data;
     }
@@ -33,20 +44,72 @@ export default function Cotizador() {
   const { data: configRows, isLoading: loadingConf } = useQuery({
     queryKey: ['configuracion_cotizador'],
     queryFn: async () => {
-      const { data, error } = await supabase.from('configuracion').select('*').in('clave', ['gastos_fijos_estimados', 'costo_direccion_mensual']);
+      const { data, error } = await supabase.from('configuracion').select('*').in('clave', ['gastos_fijos_estimados', 'costo_direccion_mensual', 'historial_cotizaciones']);
       if (error) throw error;
       return data;
     }
   });
 
-  // 2. Estados del formulario
+  // --- ESTADOS DEL FORMULARIO ---
   const [nombre, setNombre] = useState('');
   const [equipoAsignado, setEquipoAsignado] = useState<any[]>([{ id: crypto.randomUUID(), miembro_id: '', horas: 10, costo_hora: 0 }]);
   const [margen, setMargen] = useState<number>(30);
   const [complejidad, setComplejidad] = useState<number>(1);
   const [iibb, setIibb] = useState<number>(3);
 
-  // 3. Manejo de equipo asignado
+  // --- CÁLCULO DE VALOR HORA REAL DEL EQUIPO ---
+  const equipoRates = useMemo(() => {
+    if (!equipo || !clientes) return {};
+    const rates: Record<string, number> = {};
+    
+    equipo.forEach(e => {
+      const notas = parseNotas(e.notas);
+      let asignacionesSuma = 0;
+      
+      // Sumamos lo que cobra por proyectos activos
+      Object.entries(notas.asignaciones || {}).forEach(([cId, monto]) => {
+        const c = clientes.find(cl => cl.id === cId);
+        if (c && c.estado === 'activo') asignacionesSuma += Number(monto);
+      });
+      
+      const sueldoTotal = Number(e.honorario_mensual || 0) + asignacionesSuma;
+      // Asumimos 160hs mensuales laborables (40hs semanales)
+      rates[e.id] = Math.round(sueldoTotal / 160); 
+    });
+    return rates;
+  }, [equipo, clientes]);
+
+  // --- HISTORIAL DE COTIZACIONES ---
+  const historialRecord = configRows?.find(r => r.clave === 'historial_cotizaciones');
+  const historialCotizaciones = useMemo(() => {
+    if (!historialRecord?.valor) return [];
+    try { return JSON.parse(historialRecord.valor); } catch (e) { return []; }
+  }, [historialRecord]);
+
+  const saveHistorialMutation = useMutation({
+    mutationFn: async (nuevoHistorial: any[]) => {
+      const payload = { 
+        clave: 'historial_cotizaciones', 
+        valor: JSON.stringify(nuevoHistorial), 
+        descripcion: 'Historial de cotizaciones guardadas' 
+      };
+      
+      if (historialRecord?.id) {
+        const { error } = await supabase.from('configuracion').update(payload).eq('id', historialRecord.id);
+        if (error) throw error;
+      } else {
+        const { error } = await supabase.from('configuracion').insert([payload]);
+        if (error) throw error;
+      }
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['configuracion_cotizador'] });
+      showSuccess('Cotización guardada en el historial');
+    },
+    onError: (err: any) => showError(err.message)
+  });
+
+  // --- MANEJO DE EQUIPO ---
   const addMiembro = () => {
     setEquipoAsignado([...equipoAsignado, { id: crypto.randomUUID(), miembro_id: '', horas: 10, costo_hora: 0 }]);
   };
@@ -59,12 +122,9 @@ export default function Cotizador() {
     setEquipoAsignado(prev => prev.map(m => {
       if (m.id === id) {
         const updated = { ...m, [field]: value };
-        // Auto-calcular costo por hora si cambia el miembro (Asumiendo 160hs mensuales)
+        // Si cambiamos a la persona, traemos su costo hora real calculado
         if (field === 'miembro_id') {
-          const person = equipo?.find(e => e.id === value);
-          if (person) {
-            updated.costo_hora = Math.round(Number(person.honorario_mensual || 0) / 160);
-          }
+          updated.costo_hora = equipoRates[value] || 0;
         }
         return updated;
       }
@@ -72,9 +132,8 @@ export default function Cotizador() {
     }));
   };
 
-  // 4. Cálculos Financieros Nucleares
+  // --- CÁLCULOS FINANCIEROS NUCLEARES ---
   const costos = useMemo(() => {
-    // A. Costo Estructura
     let gastosFijos = 0;
     let costoDir = 0;
     configRows?.forEach(r => {
@@ -83,42 +142,56 @@ export default function Cotizador() {
     });
     
     const estructuraTotal = gastosFijos + costoDir;
-    // Si cerramos este cliente, sumará 1 al total de activos
     const clientesActivos = (clientes?.length || 0) + 1; 
     const prorrateoEstructura = clientesActivos > 0 ? (estructuraTotal / clientesActivos) : estructuraTotal;
-
-    // B. Costo Directo Equipo
     const costoEquipo = equipoAsignado.reduce((acc, m) => acc + (Number(m.horas) * Number(m.costo_hora)), 0);
-
-    // C. Subtotal Base
     const subtotalBase = prorrateoEstructura + costoEquipo;
-
-    // D. Riesgo / Complejidad
     const subtotalComplejidad = subtotalBase * complejidad;
 
-    // E. Rentabilidad (Margen sobre Venta) -> Precio = Costo / (1 - Margen%)
     const margenDecimal = Math.min(Math.max(margen, 0), 99) / 100;
     const precioSinImpuestos = subtotalComplejidad / (1 - margenDecimal);
     const gananciaNeta = precioSinImpuestos - subtotalComplejidad;
 
-    // F. Impuestos (IIBB) -> Aplica sobre el bruto final
     const iibbDecimal = Math.min(Math.max(iibb, 0), 99) / 100;
     const precioFinal = precioSinImpuestos / (1 - iibbDecimal);
     const montoIibb = precioFinal - precioSinImpuestos;
 
-    return {
-      estructuraTotal,
-      clientesActivos,
-      prorrateoEstructura,
-      costoEquipo,
-      subtotalBase,
-      subtotalComplejidad,
-      precioSinImpuestos,
-      gananciaNeta,
-      precioFinal,
-      montoIibb
-    };
+    return { estructuraTotal, clientesActivos, prorrateoEstructura, costoEquipo, subtotalBase, subtotalComplejidad, precioSinImpuestos, gananciaNeta, precioFinal, montoIibb };
   }, [equipoAsignado, clientes, configRows, margen, complejidad, iibb]);
+
+  // --- ACCIONES SECUNDARIAS ---
+  const guardarCotizacion = () => {
+    if (!nombre.trim()) return showError("Ingresá un nombre para el proyecto antes de guardar");
+    
+    const nuevaCoti = {
+      id: crypto.randomUUID(),
+      fecha: new Date().toISOString(),
+      nombre,
+      equipoAsignado,
+      margen,
+      complejidad,
+      iibb,
+      precioFinal: costos.precioFinal
+    };
+
+    const nuevoHistorial = [nuevaCoti, ...historialCotizaciones].slice(0, 50); // Guardamos las últimas 50
+    saveHistorialMutation.mutate(nuevoHistorial);
+  };
+
+  const cargarCotizacion = (coti: any) => {
+    setNombre(coti.nombre);
+    setEquipoAsignado(coti.equipoAsignado || []);
+    setMargen(coti.margen || 30);
+    setComplejidad(coti.complejidad || 1);
+    setIibb(coti.iibb || 3);
+    showSuccess("Cotización cargada");
+  };
+
+  const eliminarCotizacion = (id: string) => {
+    if (!confirm('¿Eliminar esta cotización del historial?')) return;
+    const nuevoHistorial = historialCotizaciones.filter((c: any) => c.id !== id);
+    saveHistorialMutation.mutate(nuevoHistorial);
+  };
 
   const copyToClipboard = () => {
     const text = `*Propuesta Comercial: ${nombre || 'Nuevo Proyecto'}*\n\n` +
@@ -131,21 +204,31 @@ export default function Cotizador() {
   };
 
   const isLoading = loadingEq || loadingCli || loadingConf;
-
   if (isLoading) return <div className="p-12 text-center text-gray-500">Cargando datos para el cotizador...</div>;
 
   return (
     <div className="animate-in fade-in duration-500 pb-12 w-full max-w-7xl mx-auto">
       <header className="mb-8">
-        <h1 className="text-3xl font-display font-bold text-jengibre-dark flex items-center gap-3">
-          <Calculator className="text-jengibre-primary" size={32} />
-          Cotizador Inteligente
-        </h1>
-        <p className="text-gray-600 mt-1">Calculá el precio exacto a cobrar cubriendo tus costos fijos, sueldos y asegurando tu margen de ganancia.</p>
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+          <div>
+            <h1 className="text-3xl font-display font-bold text-jengibre-dark flex items-center gap-3">
+              <Calculator className="text-jengibre-primary" size={32} />
+              Cotizador Inteligente
+            </h1>
+            <p className="text-gray-600 mt-1">Calculá el precio exacto a cobrar cubriendo tus costos fijos, sueldos y asegurando tu margen de ganancia.</p>
+          </div>
+          <button 
+            onClick={guardarCotizacion}
+            disabled={saveHistorialMutation.isPending}
+            className="bg-jengibre-primary hover:bg-[#a64120] text-white px-5 py-2.5 rounded-xl font-medium flex items-center gap-2 transition-all shadow-sm disabled:opacity-50"
+          >
+            <Save size={20} /> Guardar Presupuesto
+          </button>
+        </div>
       </header>
 
-      <TipAlert id="cotizador_intro" title="💡 ¿Cómo funciona el Prorrateo de Estructura?">
-        El sistema agarra automáticamente tus <strong>Gastos Fijos</strong> y el <strong>Sueldo de Dirección</strong> y los divide por tu cantidad de <em>Clientes Activos + 1</em>. De esta manera, todo cliente nuevo que entra ayuda a pagar un pedacito de la estructura de tu agencia.
+      <TipAlert id="cotizador_valor_hora" title="💡 Cálculo Automático de Valor Hora">
+        Al seleccionar a alguien del equipo, el sistema calcula su valor hora dividiendo sus <strong>Ingresos Totales (Sueldo Base + Proyectos Activos)</strong> por 160hs mensuales.
       </TipAlert>
 
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-8">
@@ -169,12 +252,12 @@ export default function Cotizador() {
             </div>
             
             <div className="space-y-3">
-              {equipoAsignado.map((m, idx) => (
+              {equipoAsignado.map((m) => (
                 <div key={m.id} className="flex flex-col sm:flex-row gap-3 bg-gray-50 p-3 rounded-xl border border-gray-100">
                   <div className="flex-1">
                     <label className="block text-[10px] font-bold text-gray-500 uppercase mb-1">Miembro</label>
                     <select 
-                      className="w-full border border-gray-300 rounded-md p-2 text-sm outline-none bg-white"
+                      className="w-full border border-gray-300 rounded-md p-2 text-sm outline-none bg-white font-medium"
                       value={m.miembro_id} onChange={e => updateMiembro(m.id, 'miembro_id', e.target.value)}
                     >
                       <option value="">-- Seleccionar --</option>
@@ -183,10 +266,13 @@ export default function Cotizador() {
                   </div>
                   <div className="w-full sm:w-24 shrink-0">
                     <label className="block text-[10px] font-bold text-gray-500 uppercase mb-1">Hs / Mes</label>
-                    <input 
-                      type="number" min="0" className="w-full border border-gray-300 rounded-md p-2 text-sm outline-none text-center"
-                      value={m.horas} onChange={e => updateMiembro(m.id, 'horas', e.target.value)}
-                    />
+                    <div className="relative">
+                      <input 
+                        type="number" min="0" className="w-full border border-gray-300 rounded-md p-2 pl-7 text-sm outline-none font-bold text-blue-800 bg-blue-50/30 focus:border-blue-400"
+                        value={m.horas} onChange={e => updateMiembro(m.id, 'horas', e.target.value)}
+                      />
+                      <Clock size={12} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-blue-400" />
+                    </div>
                   </div>
                   <div className="w-full sm:w-32 shrink-0">
                     <label className="block text-[10px] font-bold text-gray-500 uppercase mb-1">Costo x Hora ($)</label>
@@ -249,10 +335,11 @@ export default function Cotizador() {
           </div>
         </div>
 
-        {/* COLUMNA DERECHA: RESULTADOS */}
-        <div className="lg:col-span-5 relative">
-          <div className="sticky top-6 space-y-4">
+        {/* COLUMNA DERECHA: RESULTADOS E HISTORIAL */}
+        <div className="lg:col-span-5 space-y-6">
+          <div className="sticky top-6 space-y-6">
             
+            {/* CARTA DE RESULTADO */}
             <div className="bg-[#2B317A] text-white p-8 rounded-3xl shadow-xl relative overflow-hidden bg-cover bg-center" style={{ backgroundImage: "url('/fondo.jpg')" }}>
               <div className="absolute inset-0 bg-[#2B317A]/90 z-0"></div>
               <div className="relative z-10 text-center">
@@ -271,12 +358,12 @@ export default function Cotizador() {
               </div>
             </div>
 
+            {/* DESGLOSE */}
             <div className="bg-white border border-jengibre-border rounded-2xl shadow-sm overflow-hidden">
               <div className="bg-gray-50 px-5 py-3 border-b border-gray-100">
                 <h3 className="font-display font-bold text-gray-800">Desglose de Costos</h3>
               </div>
               <div className="p-5 space-y-4">
-                
                 <div className="flex justify-between items-start">
                   <div>
                     <p className="font-bold text-gray-700 text-sm">Prorrateo de Estructura</p>
@@ -314,9 +401,47 @@ export default function Cotizador() {
                   <p className="font-bold text-sm">Impuestos (IIBB {iibb}%)</p>
                   <span className="font-mono font-medium">+{formatARS(costos.montoIibb)}</span>
                 </div>
-
               </div>
             </div>
+
+            {/* HISTORIAL */}
+            <div className="bg-white border border-jengibre-border rounded-2xl shadow-sm overflow-hidden">
+              <div className="bg-gray-50 px-5 py-3 border-b border-gray-100 flex items-center gap-2">
+                <History size={18} className="text-gray-500" />
+                <h3 className="font-display font-bold text-gray-800">Historial de Cotizaciones</h3>
+              </div>
+              <div className="p-0 max-h-60 overflow-y-auto custom-scrollbar">
+                {historialCotizaciones.length === 0 ? (
+                  <div className="p-6 text-center text-sm text-gray-400">No hay cotizaciones guardadas.</div>
+                ) : (
+                  <div className="divide-y divide-gray-100">
+                    {historialCotizaciones.map((coti: any) => (
+                      <div key={coti.id} className="p-4 hover:bg-gray-50 transition-colors flex items-center justify-between group">
+                        <div 
+                          className="flex-1 cursor-pointer" 
+                          onClick={() => cargarCotizacion(coti)}
+                        >
+                          <p className="font-bold text-gray-800 text-sm truncate max-w-[200px]">{coti.nombre}</p>
+                          <div className="flex items-center gap-2 mt-1">
+                            <span className="text-[10px] text-gray-400">{new Date(coti.fecha).toLocaleDateString()}</span>
+                            <span className="text-[10px] font-mono font-bold text-jengibre-primary bg-jengibre-cream px-1.5 py-0.5 rounded">
+                              {formatARS(coti.precioFinal)}
+                            </span>
+                          </div>
+                        </div>
+                        <button 
+                          onClick={() => eliminarCotizacion(coti.id)}
+                          className="p-2 text-gray-400 hover:text-red-500 rounded-md opacity-0 group-hover:opacity-100 transition-opacity"
+                        >
+                          <Trash2 size={16} />
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            </div>
+
           </div>
         </div>
 
