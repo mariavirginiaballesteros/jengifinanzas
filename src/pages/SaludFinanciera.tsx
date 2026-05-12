@@ -13,7 +13,6 @@ export default function SaludFinanciera() {
   const { data: cotizacionData } = useCotizacionOficial();
   const cotizacion = cotizacionData || 1000;
 
-  const [settingsOpen, setSettingsOpen] = useState(false);
   const [chatInput, setChatInput] = useState('');
   const [chatMessages, setChatMessages] = useState<{role: 'user' | 'assistant', content: string}[]>([]);
   const [isChatLoading, setIsChatLoading] = useState(false);
@@ -64,7 +63,7 @@ export default function SaludFinanciera() {
       if (error) throw error;
       setChatMessages(prev => [...prev, { role: 'assistant', content: data.reply }]);
     } catch (err: any) {
-      showError("No se pudo conectar con el asesor IA. Verificá la API Key.");
+      showError("No se pudo conectar con el asesor IA.");
     } finally {
       setIsChatLoading(false);
     }
@@ -90,8 +89,10 @@ export default function SaludFinanciera() {
     const egresosPorConcepto: Record<string, { data: number[] }> = {};
     const totalesMes = mesesKeys.map(() => ({ ingresos: 0, egresos: 0, neto: 0, margen: 0 }));
 
-    // 2. Procesar movimientos para saldos y P&L
+    // 2. Procesar movimientos
     movimientos.forEach(m => {
+      if (!m.fecha) return;
+      
       let isUSD = false;
       try { 
         const p = JSON.parse(m.notas || '{}'); 
@@ -120,7 +121,7 @@ export default function SaludFinanciera() {
         }
       }
 
-      // Lógica de Grilla (P&L) - Solo ingresos/egresos reales (excluye transferencias)
+      // P&L (Excluye transferencias)
       if (m.fecha.startsWith(yearSelected.toString()) && (m.tipo === 'ingreso' || m.tipo === 'egreso')) {
         const mesIndex = mesesKeys.indexOf(m.fecha.substring(0, 7));
         if (mesIndex !== -1) {
@@ -139,7 +140,7 @@ export default function SaludFinanciera() {
       }
     });
 
-    // 3. Calcular Totales Finales
+    // 3. Totales
     let cajaTotalARS = 0;
     let arsPuros = 0;
     let usdPuros = 0;

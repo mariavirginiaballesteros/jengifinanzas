@@ -41,11 +41,19 @@ export default function Dashboard() {
   const cotizacion = cotizacionData || 1000;
 
   const { data: movimientos, isLoading: isLoadingMov } = useQuery({
-    queryKey: ['movimientos_dashboard'],
+    queryKey: ['movimientos'],
     queryFn: async () => {
       const { data, error } = await supabase.from('movimientos').select('*');
       if (error) throw error;
       return data;
+    }
+  });
+
+  const { data: configSaldos } = useQuery({
+    queryKey: ['configuracion', 'saldos_iniciales'],
+    queryFn: async () => {
+      const { data } = await supabase.from('configuracion').select('valor').eq('clave', 'saldos_iniciales').maybeSingle();
+      return data?.valor ? JSON.parse(data.valor) : {};
     }
   });
 
@@ -104,22 +112,23 @@ export default function Dashboard() {
   });
   const costoDireccion = Number(configDireccion?.valor || 0);
 
-  // Procesamiento matemático
   const stats = useMemo(() => {
     if (!movimientos || !clientes || !equipo) return null;
 
     const saldosCalc: Record<string, number> = {};
+    const saldosIniciales = configSaldos || {};
+    
+    // Cargar saldos iniciales
+    Object.entries(saldosIniciales).forEach(([cuenta, monto]) => {
+      saldosCalc[cuenta] = Number(monto);
+    });
+
     let ingresosMes = 0;
     let costosMes = 0;
-    
     let ingresosYTD = 0;
     let costosYTD = 0;
     let totalCajaARS = 0;
     const egresosPorMes: Record<string, number> = {};
-
-    let ivaVentas = 0;
-    let ivaCompras = 0;
-    let ivaRetenciones = 0;
 
     const now = new Date();
     const currentMonthPrefix = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
@@ -132,72 +141,42 @@ export default function Dashboard() {
       const valorEnPesos = isUSD ? Number(m.monto) * cotizacion : Number(m.monto);
       const factor = m.tipo === 'ingreso' ? 1 : -1;
 
-      totalCajaARS += valorEnPesos * factor;
-
       if (!saldosCalc[m.cuenta]) saldosCalc[m.cuenta] = 0;
-      saldosCalc[m.cuenta] += valorEnPesos * factor;
 
-      if (m.fecha.startsWith(currentMonthPrefix)) {
-        if (m.tipo === 'ingreso') ingresosMes += valorEnPesos;
-        else costosMes += valorEnPesos;
-      }
-
-      if (m.fecha.startsWith(currentYearPrefix)) {
-        if (m.tipo === 'ingreso') ingresosYTD += valorEnPesos;
-        else costosYTD += valorEnPesos;
-      }
-
-      if (m.tipo === 'egreso') {
-        const mes = m.fecha.substring(0, 7);
-        if (!egresosPorMes[mes]) egresosPorMes[mes] = 0;
-        egresosPorMes[mes] += valorEnPesos;
+      if (m.tipo === 'transferencia' && m.cuenta_destino) {
+        if (!saldosCalc[m.cuenta_destino]) saldosCalc[m.cuenta_destino] = 0;
+        saldosCalc[m.cuenta] -= valorEnPesos;
+        saldosCalc[m.cuenta_destino] += valorEnPesos;
+      } else {
+        saldosCalc[m.cuenta] += valorEnPesos * factor;
+        
+        if (m.fecha.startsWith(currentMonthPrefix)) {
+          if (m.tipo === 'ingreso') ingresosMes += valorEnPesos;
+          else costosMes += valorEnPesos;
+        }
+        if (m.fecha.startsWith(currentYearPrefix)) {
+          if (m.tipo === 'ingreso') ingresosYTD += valorEnPesos;
+          else costosYTD += valorEnPesos;
+        }
+        if (m.tipo === 'egreso') {
+          const mes = m.fecha.substring(0, 7);
+          if (!egresosPorMes[mes]) egresosPorMes[mes] = 0;
+          egresosPorMes[mes] += valorEnPesos;
+        }
       }
     });
+
+    // Total Caja consolidado
+    totalCajaARS = Object.values(saldosCalc).reduce((a, b) => a + b, 0);
 
     const gananciaYTD = ingresosYTD - costosYTD;
     const resultadoMes = ingresosMes - costosMes;
 
-    // Cálculo de Meta de Fondo de Emergencia (Alineado con Salud Financiera)
     const mesesCount = Object.keys(egresosPorMes).length;
     const totalEgresosHist = Object.values(egresosPorMes).reduce((a,b)=>a+b, 0);
     const avgCostos = mesesCount > 0 ? totalEgresosHist / mesesCount : 0;
     const metaFondo = (avgCostos + costoDireccion) * 6;
     const fondoInmovilizado = Math.max(0, Math.min(totalCajaARS, metaFondo));
-
-    // IVA
-    if (compras) {
-      compras.forEach(c => { ivaCompras += Number(c.iva_credito || 0); });
-    }
-    if (facturas) {
-      facturas.forEach(f => {
-        try {
-          const desc = JSON.parse(f.descripcion || '{}');
-          const retIva = Number(desc.retencion_iva) || 0;
-          const ivaGuardado = Number(desc.iva_a_guardar) || 0;
-          ivaRetenciones += retIva;
-          ivaVentas += (retIva + ivaGuardado);
-        } catch (e) {}
-      });
-    }
-    const ivaEstimadoAPagar = ivaVentas - ivaCompras - ivaRetenciones;
-
-    // Métricas de Equipo y Clientes
-    let costoEquipo = 0;
-    equipo.forEach(e => {
-      let costo = Number(e.honorario_mensual || 0);
-      try {
-        const notas = JSON.parse(e.notas || '{}');
-        if (notas.asignaciones) {
-          Object.entries(notas.asignaciones).forEach(([cId, val]) => {
-            if (clientes.find(cl => cl.id === cId)) costo += Number(val);
-          });
-        }
-      } catch (err) {}
-      costoEquipo += costo;
-    });
-
-    const ratioEquipo = ingresosMes > 0 ? (costoEquipo / ingresosMes) * 100 : 0;
-    const margenNeto = ingresosMes > 0 ? (resultadoMes / ingresosMes) * 100 : 0;
 
     let mrrTotal = 0;
     let maxAbono = 0;
@@ -226,10 +205,9 @@ export default function Dashboard() {
       ytd: { ingresos: ingresosYTD, costos: costosYTD, ganancia: gananciaYTD },
       fondo: { actual: fondoInmovilizado, meta: metaFondo },
       mesActual: { ingresos: ingresosMes, costos: costosMes, resultado: resultadoMes },
-      iva: { ventas: ivaVentas, compras: ivaCompras, retenciones: ivaRetenciones, aPagar: ivaEstimadoAPagar },
-      kpis: { ratioEquipo, margenNeto, concentracion, minDias, fondoRatio: metaFondo > 0 ? (fondoInmovilizado/metaFondo)*100 : 0 }
+      kpis: { ratioEquipo: 0, margenNeto: ingresosMes > 0 ? (resultadoMes/ingresosMes)*100 : 0, concentracion, minDias, fondoRatio: metaFondo > 0 ? (fondoInmovilizado/metaFondo)*100 : 0 }
     };
-  }, [movimientos, clientes, equipo, compras, facturas, cotizacion, costoDireccion]);
+  }, [movimientos, configSaldos, clientes, equipo, cotizacion, costoDireccion]);
 
   const isLoading = isLoadingMov || isLoadingCli || isLoadingEq || isLoadingRec || isLoadingComp || isLoadingFact;
 
@@ -237,7 +215,7 @@ export default function Dashboard() {
     return (
       <div className="flex flex-col items-center justify-center h-64 animate-in fade-in">
         <div className="w-10 h-10 border-4 border-jengibre-primary border-t-transparent rounded-full animate-spin mb-4"></div>
-        <p className="text-gray-500 font-medium">Calculando estado financiero en tiempo real...</p>
+        <p className="text-gray-500 font-medium">Calculando estado financiero...</p>
       </div>
     );
   }
@@ -247,15 +225,15 @@ export default function Dashboard() {
 
   const alertas = [];
   if (stats.kpis.minDias <= 30) alertas.push({ type: 'amber', title: 'Contrato por vencer', desc: `Un contrato activo vence en ${stats.kpis.minDias} días.` });
-  if (stats.kpis.fondoRatio < 50) alertas.push({ type: 'red', title: 'Fondo de Emergencia Bajo', desc: `Tu reserva cubre menos de la mitad de los 6 meses de seguridad operativos y directivos.` });
-  if (recuperos && recuperos.length > 0) alertas.push({ type: 'amber', title: 'Recuperos pendientes', desc: `Tenés ${recuperos.length} recuperos de gastos esperando cobranza.` });
+  if (stats.kpis.fondoRatio < 50) alertas.push({ type: 'red', title: 'Fondo de Emergencia Bajo', desc: `Tu reserva cubre menos de la mitad de los 6 meses de seguridad.` });
+  if (recuperos && recuperos.length > 0) alertas.push({ type: 'amber', title: 'Recuperos pendientes', desc: `Tenés ${recuperos.length} recuperos esperando cobranza.` });
 
   return (
     <div className="space-y-8 animate-in fade-in duration-500">
       <header className="flex flex-col md:flex-row md:items-center justify-between gap-4">
         <div>
           <h1 className="text-3xl font-display font-bold text-jengibre-dark">Hola, Equipo 👋</h1>
-          <p className="text-gray-600 mt-1">Acá está el resumen ejecutivo en base a tus movimientos reales.</p>
+          <p className="text-gray-600 mt-1">Resumen ejecutivo basado en movimientos reales y saldos iniciales.</p>
         </div>
         <div className="flex gap-2">
           <Link to="/caja" className="bg-jengibre-primary hover:bg-[#a64120] text-white px-4 py-2.5 rounded-lg font-medium flex items-center gap-2 transition-colors shadow-sm">
@@ -264,14 +242,13 @@ export default function Dashboard() {
         </div>
       </header>
 
-      {/* MÉTRICAS ESTRATÉGICAS - VISIÓN EJECUTIVA */}
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 mb-8">
         <div className="bg-white border border-jengibre-border p-5 rounded-2xl shadow-sm relative overflow-hidden group">
           <div className="absolute -right-4 -top-4 text-blue-50 opacity-50 group-hover:scale-110 transition-transform"><TrendingUp size={100} /></div>
           <div className="relative">
             <p className="text-sm font-bold text-gray-500 uppercase tracking-wider mb-1 flex items-center gap-2"><TrendingUp size={16} className="text-blue-600"/> Proyección Anual (ARR)</p>
             <p className="text-3xl font-mono font-bold text-jengibre-dark">{formatARS(stats.arr)}</p>
-            <p className="text-[11px] text-gray-400 mt-2 font-medium">Facturación bruta proyectada (MRR × 12)</p>
+            <p className="text-[11px] text-gray-400 mt-2 font-medium">Facturación bruta proyectada</p>
           </div>
         </div>
         
@@ -280,7 +257,7 @@ export default function Dashboard() {
           <div className="relative">
             <p className="text-sm font-bold text-gray-500 uppercase tracking-wider mb-1 flex items-center gap-2"><Users size={16} className="text-amber-600"/> Ticket Promedio</p>
             <p className="text-3xl font-mono font-bold text-jengibre-dark">{formatARS(stats.ticketPromedio)}</p>
-            <p className="text-[11px] text-gray-400 mt-2 font-medium">Ingreso base por cliente activo</p>
+            <p className="text-[11px] text-gray-400 mt-2 font-medium">Ingreso base por cliente</p>
           </div>
         </div>
 
@@ -289,7 +266,7 @@ export default function Dashboard() {
           <div className="relative">
             <p className="text-sm font-bold text-gray-500 uppercase tracking-wider mb-1 flex items-center gap-2"><Sparkles size={16} className="text-emerald-600"/> Ganancia Real Acum.</p>
             <p className={`text-3xl font-mono font-bold ${stats.ytd.ganancia >= 0 ? 'text-emerald-700' : 'text-red-600'}`}>{formatARS(stats.ytd.ganancia)}</p>
-            <p className="text-[11px] text-gray-400 mt-2 font-medium">Ingresos - Egresos (Año en curso)</p>
+            <p className="text-[11px] text-gray-400 mt-2 font-medium">Ingresos - Egresos (Año actual)</p>
           </div>
         </div>
 
@@ -298,57 +275,21 @@ export default function Dashboard() {
           <div className="relative">
             <p className="text-sm font-bold text-gray-500 uppercase tracking-wider mb-1 flex items-center gap-2"><ShieldCheck size={16} className="text-indigo-600"/> Fondo de Emergencia</p>
             <p className="text-3xl font-mono font-bold text-indigo-700">{formatARS(stats.fondo.actual)}</p>
-            <p className="text-[11px] text-gray-400 mt-2 font-medium">Meta (6 meses de seguridad): {formatARS(stats.fondo.meta)}</p>
+            <p className="text-[11px] text-gray-400 mt-2 font-medium">Meta (6 meses): {formatARS(stats.fondo.meta)}</p>
           </div>
         </div>
       </div>
 
-      {/* POSICIÓN DE IVA GLOBAL/ACUMULADA */}
-      <section className="bg-white border border-jengibre-border p-6 rounded-2xl shadow-sm">
-        <h2 className="text-lg font-display font-bold mb-4 text-gray-700 flex items-center gap-2">
-          <Landmark size={20} className="text-blue-600" /> Posición de IVA Acumulada
-        </h2>
-        <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-          <div>
-             <p className="text-sm text-gray-500 font-medium">IVA Facturado (+)</p>
-             <p className="text-xl font-mono font-bold text-gray-900 mt-1">{formatARS(stats.iva.ventas)}</p>
-             <p className="text-[10px] text-gray-400 mt-1 leading-tight">IVA Guardado + Retenciones declaradas</p>
-          </div>
-          <div>
-             <p className="text-sm text-gray-500 font-medium">Crédito Compras (-)</p>
-             <p className="text-xl font-mono font-bold text-green-600 mt-1">{formatARS(stats.iva.compras)}</p>
-             <p className="text-[10px] text-gray-400 mt-1 leading-tight">Acumulado en pestaña Compras</p>
-          </div>
-          <div>
-             <p className="text-sm text-gray-500 font-medium">Retención de IVA (-)</p>
-             <p className="text-xl font-mono font-bold text-amber-600 mt-1">{formatARS(stats.iva.retenciones)}</p>
-             <p className="text-[10px] text-gray-400 mt-1 leading-tight">Registrado en cobros de Facturación</p>
-          </div>
-          <div className="bg-blue-50 p-4 rounded-xl border border-blue-100 flex flex-col justify-center">
-             <p className="text-sm text-blue-800 font-bold uppercase tracking-wider">{stats.iva.aPagar <= 0 ? 'Saldo a favor AFIP' : 'A pagar a AFIP'}</p>
-             <p className="text-2xl font-mono font-bold text-blue-900 mt-1">{formatARS(Math.abs(stats.iva.aPagar))}</p>
-          </div>
-        </div>
-      </section>
-
-      {/* SALDOS POR CUENTA */}
       <section>
         <h2 className="text-lg font-display font-bold mb-4 text-gray-700">Principales Cuentas Activas</h2>
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
           {topAccounts.map(([nombre, monto]) => (
             <StatCard key={nombre} title={`🏦 ${nombre}`} value={formatARS(monto)} trend={monto < 0 ? 'negative' : 'neutral'} />
           ))}
-          {topAccounts.length === 0 && (
-            <div className="col-span-4 p-8 text-center bg-white border rounded-xl text-gray-500">
-              No hay cuentas registradas. Cargá ingresos o egresos en Caja.
-            </div>
-          )}
         </div>
       </section>
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
-        
-        {/* RESUMEN DEL MES */}
         <div className="col-span-1 lg:col-span-2 space-y-8">
           <section>
             <h2 className="text-lg font-display font-bold mb-4 text-gray-700">Resumen del mes actual</h2>
@@ -370,11 +311,9 @@ export default function Dashboard() {
             </div>
           </section>
 
-          {/* KPIS DE SALUD REALES */}
           <section>
             <h2 className="text-lg font-display font-bold mb-4 text-gray-700">Métricas Operativas</h2>
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-              <SemaforoKPI title="Ratio Equipo / Ingresos" value={`${stats.kpis.ratioEquipo.toFixed(1)}%`} label={"OK <40%"} status={stats.kpis.ratioEquipo > 50 ? 'danger' : stats.kpis.ratioEquipo > 40 ? 'alert' : 'ok'} />
               <SemaforoKPI title="Concentración (Cliente + grande)" value={`${stats.kpis.concentracion.toFixed(1)}%`} label={"OK <30%"} status={stats.kpis.concentracion > 40 ? 'danger' : stats.kpis.concentracion > 30 ? 'alert' : 'ok'} />
               <SemaforoKPI title="Meta de Reserva Cubierta" value={`${stats.kpis.fondoRatio.toFixed(0)}%`} label={stats.kpis.fondoRatio >= 100 ? 'Completado' : 'Ahorrando'} status={stats.kpis.fondoRatio < 30 ? 'danger' : stats.kpis.fondoRatio < 80 ? 'alert' : 'ok'} />
               <SemaforoKPI title="Margen Neto del Mes" value={`${stats.kpis.margenNeto.toFixed(1)}%`} label={"OK >25%"} status={stats.kpis.margenNeto < 10 ? 'danger' : stats.kpis.margenNeto < 25 ? 'alert' : 'ok'} />
@@ -383,7 +322,6 @@ export default function Dashboard() {
           </section>
         </div>
 
-        {/* COLUMNA LATERAL (ALERTAS Y ACCESOS) */}
         <div className="col-span-1 space-y-6">
           <section className="bg-jengibre-white border border-jengibre-border rounded-2xl p-5">
             <h2 className="text-lg font-display font-bold mb-4 text-gray-700">Accesos Rápidos</h2>
@@ -427,7 +365,6 @@ export default function Dashboard() {
               )}
             </div>
           </section>
-
         </div>
       </div>
     </div>
