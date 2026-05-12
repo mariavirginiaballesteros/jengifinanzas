@@ -1,17 +1,19 @@
 import React, { useMemo, useState } from 'react';
-import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import { useQuery } from '@tanstack/react-query';
 import { supabase } from '@/integrations/supabase/client';
 import { formatARS, formatUSD } from '@/lib/utils';
 import { TipAlert } from '@/components/TipAlert';
-import { Wallet, ChevronLeft, ChevronRight, Bot, Sparkles, ShieldCheck, Unlock, Lightbulb, TrendingUp, Settings, Send, Loader2, Landmark } from 'lucide-react';
+import { 
+  ChevronLeft, ChevronRight, Bot, Sparkles, 
+  ShieldCheck, Lightbulb, Send, Loader2, Landmark 
+} from 'lucide-react';
 import { useCotizacionOficial } from '@/hooks/useCotizacion';
-import { showSuccess, showError } from '@/utils/toast';
+import { showError } from '@/utils/toast';
 
 export default function SaludFinanciera() {
-  const queryClient = useQueryClient();
   const [yearSelected, setYearSelected] = useState(new Date().getFullYear());
   const { data: cotizacionData } = useCotizacionOficial();
-  const cotizacion = cotizacionData || 1000;
+  const cotizacion = Number(cotizacionData) || 1000;
 
   const [chatInput, setChatInput] = useState('');
   const [chatMessages, setChatMessages] = useState<{role: 'user' | 'assistant', content: string}[]>([]);
@@ -22,7 +24,7 @@ export default function SaludFinanciera() {
     queryFn: async () => {
       const { data, error } = await supabase.from('movimientos').select(`*, cliente:clientes(nombre)`).order('fecha', { ascending: true });
       if (error) throw error;
-      return data;
+      return data || [];
     }
   });
 
@@ -30,7 +32,8 @@ export default function SaludFinanciera() {
     queryKey: ['configuracion', 'saldos_iniciales'],
     queryFn: async () => {
       const { data } = await supabase.from('configuracion').select('valor').eq('clave', 'saldos_iniciales').maybeSingle();
-      return data?.valor ? JSON.parse(data.valor) : {};
+      if (!data?.valor) return {};
+      try { return JSON.parse(data.valor); } catch { return {}; }
     }
   });
 
@@ -42,52 +45,37 @@ export default function SaludFinanciera() {
     }
   });
 
-  const costoDireccion = Number(configDireccion?.valor || 0);
-
-  const handleSendMessage = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!chatInput.trim() || isChatLoading) return;
-
-    const userMsg = chatInput;
-    setChatInput('');
-    setChatMessages(prev => [...prev, { role: 'user', content: userMsg }]);
-    setIsChatLoading(true);
-
-    try {
-      const { data, error } = await supabase.functions.invoke('asesor-financiero', {
-        body: { 
-          messages: [...chatMessages, { role: 'user', content: userMsg }],
-          contexto: { totalCajaARS, totalARS_puro, totalUSD_puro, avgCostos, costoDireccion, fondoReservaObjetivo, excedente }
-        }
-      });
-      if (error) throw error;
-      setChatMessages(prev => [...prev, { role: 'assistant', content: data.reply }]);
-    } catch (err: any) {
-      showError("No se pudo conectar con el asesor IA.");
-    } finally {
-      setIsChatLoading(false);
-    }
-  };
+  const costoDireccion = Number(configDireccion?.valor ?? 0);
 
   const { 
     saldos, grilla, mesesNames, totalCajaARS, totalARS_puro, totalUSD_puro, 
     avgCostos, fondoReservaObjetivo, excedente, porcentajeFondo 
   } = useMemo(() => {
-    if (!movimientos) return { saldos: {}, grilla: { ingresos: {}, egresos: {}, totales: [] }, mesesNames: [], totalCajaARS: 0, totalARS_puro: 0, totalUSD_puro: 0, avgCostos: 0, fondoReservaObjetivo: 0, excedente: 0, porcentajeFondo: 0 };
+    const defaultState = { 
+      saldos: {}, 
+      grilla: { ingresos: {}, egresos: {}, totales: Array(12).fill(0).map(() => ({ ingresos: 0, egresos: 0, neto: 0, margen: 0 })) }, 
+      mesesNames: ['Ene', 'Feb', 'Mar', 'Abr', 'May', 'Jun', 'Jul', 'Ago', 'Sep', 'Oct', 'Nov', 'Dic'], 
+      totalCajaARS: 0, totalARS_puro: 0, totalUSD_puro: 0, 
+      avgCostos: 0, fondoReservaObjetivo: 1000000, excedente: 0, porcentajeFondo: 0 
+    };
+
+    if (!movimientos) return defaultState;
 
     const saldosCalc: Record<string, { ars: number, usd: number }> = {};
     const saldosIniciales = configSaldos || {};
     
-    // 1. Cargar saldos iniciales
+    // 1. Cargar saldos iniciales con validación numérica
     Object.entries(saldosIniciales).forEach(([cuenta, monto]) => {
-      saldosCalc[cuenta] = { ars: Number(monto), usd: 0 };
+      const val = Number(monto);
+      if (!isNaN(val)) {
+        saldosCalc[cuenta] = { ars: val, usd: 0 };
+      }
     });
 
     const mesesKeys = Array.from({ length: 12 }, (_, i) => `${yearSelected}-${String(i + 1).padStart(2, '0')}`);
-    const mesesNames = ['Ene', 'Feb', 'Mar', 'Abr', 'May', 'Jun', 'Jul', 'Ago', 'Sep', 'Oct', 'Nov', 'Dic'];
     const ingresosPorCliente: Record<string, { nombre: string, data: number[] }> = {};
     const egresosPorConcepto: Record<string, { data: number[] }> = {};
-    const totalesMes = mesesKeys.map(() => ({ ingresos: 0, egresos: 0, neto: 0, margen: 0 }));
+    const totalesMes = mesesKeys.map(() => ({ ingresos: 0, egresos: 0, neto: 0, margen:0 }));
 
     // 2. Procesar movimientos
     movimientos.forEach(m => {
@@ -99,7 +87,7 @@ export default function SaludFinanciera() {
         if (p.moneda === 'USD') isUSD = true; 
       } catch(e){}
       
-      const montoOriginal = Number(m.monto);
+      const montoOriginal = Number(m.monto) || 0;
       const valorEnPesos = isUSD ? montoOriginal * cotizacion : montoOriginal;
 
       if (!saldosCalc[m.cuenta]) saldosCalc[m.cuenta] = { ars: 0, usd: 0 };
@@ -152,17 +140,64 @@ export default function SaludFinanciera() {
 
     const mesesConMov = totalesMes.filter(t => t.ingresos > 0 || t.egresos > 0);
     const avgCostos = mesesConMov.length > 0 ? mesesConMov.reduce((acc, t) => acc + t.egresos, 0) / mesesConMov.length : 0;
-    totalesMes.forEach(t => { t.neto = t.ingresos - t.egresos; t.margen = t.ingresos > 0 ? (t.neto / t.ingresos) * 100 : 0; });
+    totalesMes.forEach(t => { 
+      t.neto = t.ingresos - t.egresos; 
+      t.margen = t.ingresos > 0 ? (t.neto / t.ingresos) * 100 : 0; 
+    });
 
     const totalCostoMensual = avgCostos + costoDireccion;
     const objFondo = totalCostoMensual > 0 ? totalCostoMensual * 6 : 1000000; 
     const exc = Math.max(0, cajaTotalARS - objFondo);
     const pct = Math.max(0, Math.min(100, (cajaTotalARS / objFondo) * 100));
 
-    return { saldos: saldosCalc, mesesNames, totalCajaARS, totalARS_puro: arsPuros, totalUSD_puro: usdPuros, avgCostos, fondoReservaObjetivo: objFondo, excedente: exc, porcentajeFondo: pct, grilla: { ingresos: ingresosPorCliente, egresos: egresosPorConcepto, totales: totalesMes } };
+    return { 
+      saldos: saldosCalc, 
+      mesesNames: defaultState.mesesNames, 
+      totalCajaARS, 
+      totalARS_puro: arsPuros, 
+      totalUSD_puro: usdPuros, 
+      avgCostos, 
+      fondoReservaObjetivo: objFondo, 
+      excedente: exc, 
+      porcentajeFondo: pct, 
+      grilla: { ingresos: ingresosPorCliente, egresos: egresosPorConcepto, totales: totalesMes } 
+    };
   }, [movimientos, configSaldos, yearSelected, cotizacion, costoDireccion]);
 
-  if (isLoadingMov) return <div className="p-12 text-center">Cargando...</div>;
+  const handleSendMessage = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!chatInput.trim() || isChatLoading) return;
+
+    const userMsg = chatInput;
+    setChatInput('');
+    setChatMessages(prev => [...prev, { role: 'user',content: userMsg }]);
+    setIsChatLoading(true);
+
+    try {
+      const { data, error } = await supabase.functions.invoke('asesor-financiero', {
+        body: { 
+          messages: [...chatMessages, { role: 'user', content: userMsg }],
+          contexto: { totalCajaARS, totalARS_puro, totalUSD_puro, avgCostos, costoDireccion, fondoReservaObjetivo, excedente }
+        }
+      });
+      
+      if (error) throw error;
+      if (data?.error) throw new Error(data.error);
+      
+      setChatMessages(prev => [...prev, { role: 'assistant', content: data.reply }]);
+    } catch (err: any) {
+      showError(err.message || "No se pudo conectar con el asesor IA.");
+    } finally {
+      setIsChatLoading(false);
+    }
+  };
+
+  if (isLoadingMov) return (
+    <div className="flex flex-col items-center justify-center h-64">
+      <Loader2 className="w-10 h-10 text-jengibre-primary animate-spin mb-4" />
+      <p className="text-gray-500 font-medium">Analizando salud financiera...</p>
+    </div>
+  );
 
   return (
     <div className="animate-in fade-in duration-500 pb-12 max-w-[100vw] overflow-hidden">
@@ -181,7 +216,7 @@ export default function SaludFinanciera() {
       <section className="mb-8">
         <h2 className="text-sm font-bold uppercase tracking-widest text-gray-500 mb-3 flex items-center gap-2"><Landmark size={16} /> Saldos Reales por Cuenta</h2>
         <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-6 gap-3">
-          {Object.entries(saldos).map(([cuenta, montos]) => (
+          {Object.entries(saldos).map(([cuenta, montos]: [string, any]) => (
             <div key={cuenta} className="p-4 rounded-xl border bg-white border-jengibre-border shadow-sm">
               <span className="text-[10px] font-bold uppercase text-gray-400 block mb-1">{cuenta}</span>
               <p className="text-lg font-mono font-bold text-gray-900">{formatARS(montos.ars)}</p>
@@ -258,35 +293,35 @@ export default function SaludFinanciera() {
             </thead>
             <tbody>
               <tr className="bg-jengibre-green text-white font-bold"><td className="p-2 sticky left-0 bg-jengibre-green z-10">INGRESOS</td><td colSpan={13}></td></tr>
-              {Object.values(grilla.ingresos).map(c => (
+              {Object.values(grilla.ingresos).map((c: any) => (
                 <tr key={c.nombre} className="border-b border-gray-100">
                   <td className="p-2 border-r border-gray-200 sticky left-0 bg-white z-10">{c.nombre}</td>
-                  {c.data.map((v, i) => <td key={i} className="p-2 border-r border-gray-200 text-right font-mono text-blue-800">{v > 0 ? formatARS(v) : '-'}</td>)}
-                  <td className="p-2 text-right font-mono font-bold bg-gray-50">{formatARS(c.data.reduce((a,b)=>a+b,0))}</td>
+                  {c.data.map((v: number, i: number) => <td key={i} className="p-2 border-r border-gray-200 text-right font-mono text-blue-800">{v > 0 ? formatARS(v) : '-'}</td>)}
+                  <td className="p-2 text-right font-mono font-bold bg-gray-50">{formatARS(c.data.reduce((a: number, b: number) => a + b, 0))}</td>
                 </tr>
               ))}
               <tr className="bg-gray-50 font-bold border-y border-gray-200">
                 <td className="p-2 sticky left-0 bg-gray-50 z-10">TOTAL INGRESOS</td>
                 {grilla.totales.map((t, i) => <td key={i} className="p-2 text-right font-mono">{formatARS(t.ingresos)}</td>)}
-                <td className="p-2 text-right font-mono bg-gray-100">{formatARS(grilla.totales.reduce((a,t)=>a+t.ingresos,0))}</td>
+                <td className="p-2 text-right font-mono bg-gray-100">{formatARS(grilla.totales.reduce((a, t) => a + t.ingresos, 0))}</td>
               </tr>
               <tr className="bg-red-600 text-white font-bold"><td className="p-2 sticky left-0 bg-red-600 z-10">EGRESOS</td><td colSpan={13}></td></tr>
-              {Object.entries(grilla.egresos).map(([concepto, info]) => (
+              {Object.entries(grilla.egresos).map(([concepto, info]: [string, any]) => (
                 <tr key={concepto} className="border-b border-gray-100">
                   <td className="p-2 border-r border-gray-200 sticky left-0 bg-white z-10 capitalize">{concepto.toLowerCase()}</td>
-                  {info.data.map((v, i) => <td key={i} className="p-2 border-r border-gray-200 text-right font-mono text-red-700">{v > 0 ? formatARS(v) : '-'}</td>)}
-                  <td className="p-2 text-right font-mono font-bold bg-gray-50">{formatARS(info.data.reduce((a,b)=>a+b,0))}</td>
+                  {info.data.map((v: number, i: number) => <td key={i} className="p-2 border-r border-gray-200 text-right font-mono text-red-700">{v > 0 ? formatARS(v) : '-'}</td>)}
+                  <td className="p-2 text-right font-mono font-bold bg-gray-50">{formatARS(info.data.reduce((a: number, b: number) => a + b, 0))}</td>
                 </tr>
               ))}
               <tr className="bg-red-50 font-bold border-y border-red-200">
                 <td className="p-2 sticky left-0 bg-red-50 z-10">TOTAL EGRESOS</td>
                 {grilla.totales.map((t, i) => <td key={i} className="p-2 text-right font-mono">{formatARS(t.egresos)}</td>)}
-                <td className="p-2 text-right font-mono bg-red-100">{formatARS(grilla.totales.reduce((a,t)=>a+t.egresos,0))}</td>
+                <td className="p-2 text-right font-mono bg-red-100">{formatARS(grilla.totales.reduce((a, t) => a + t.egresos, 0))}</td>
               </tr>
               <tr className="bg-blue-50 font-bold border-t-2 border-blue-200">
                 <td className="p-2 sticky left-0 bg-blue-50 z-10">RESULTADO NETO</td>
                 {grilla.totales.map((t, i) => <td key={i} className={`p-2 text-right font-mono ${t.neto < 0 ? 'text-red-600' : 'text-blue-900'}`}>{formatARS(t.neto)}</td>)}
-                <td className="p-2 text-right font-mono bg-blue-100">{formatARS(grilla.totales.reduce((a,t)=>a+t.neto,0))}</td>
+                <td className="p-2 text-right font-mono bg-blue-100">{formatARS(grilla.totales.reduce((a, t) => a + t.neto, 0))}</td>
               </tr>
             </tbody>
           </table>
