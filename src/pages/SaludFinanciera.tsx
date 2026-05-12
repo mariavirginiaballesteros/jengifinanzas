@@ -53,7 +53,7 @@ export default function SaludFinanciera() {
   } = useMemo(() => {
     const defaultState = { 
       saldos: {}, 
-      grilla: { ingresos: {}, egresos: {}, totales: Array(12).fill(0).map(() => ({ ingresos: 0, egresos: 0, neto: 0, margen: 0 })) }, 
+      grilla: { ingresos: {}, egresos: {}, totales: Array(12).fill(0).map(() => ({ ingresos: 0, egresos: 0, neto: 0, margen: 0, saldoCaja: 0 })) }, 
       mesesNames: ['Ene', 'Feb', 'Mar', 'Abr', 'May', 'Jun', 'Jul', 'Ago', 'Sep', 'Oct', 'Nov', 'Dic'], 
       totalCajaARS: 0, totalARS_puro: 0, totalUSD_puro: 0, 
       avgCostos: 0, fondoReservaObjetivo: 1000000, excedente: 0, porcentajeFondo: 0 
@@ -64,7 +64,7 @@ export default function SaludFinanciera() {
     const saldosCalc: Record<string, { ars: number, usd: number }> = {};
     const saldosIniciales = configSaldos || {};
     
-    // 1. Cargar saldos iniciales
+    // 1. Cargar saldos iniciales de configuración
     Object.entries(saldosIniciales).forEach(([cuenta, monto]) => {
       const val = Number(monto);
       if (!isNaN(val)) {
@@ -75,7 +75,11 @@ export default function SaludFinanciera() {
     const mesesKeys = Array.from({ length: 12 }, (_, i) => `${yearSelected}-${String(i + 1).padStart(2, '0')}`);
     const ingresosPorCliente: Record<string, { nombre: string, data: number[] }> = {};
     const egresosPorConcepto: Record<string, { data: number[] }> = {};
-    const totalesMes = mesesKeys.map(() => ({ ingresos: 0, egresos: 0, neto: 0, margen:0 }));
+    const totalesMes = mesesKeys.map(() => ({ ingresos: 0, egresos: 0, neto: 0, margen:0, saldoCaja: 0 }));
+
+    let saldoInicialAnio = 0;
+    // Sumamos los saldos iniciales de configuración al punto de partida
+    Object.values(saldosCalc).forEach(s => { saldoInicialAnio += s.ars; });
 
     // 2. Procesar movimientos
     movimientos.forEach(m => {
@@ -92,6 +96,7 @@ export default function SaludFinanciera() {
 
       if (!saldosCalc[m.cuenta]) saldosCalc[m.cuenta] = { ars: 0, usd: 0 };
 
+      // Actualizar saldos reales (Estado actual de la caja)
       if (m.tipo === 'ingreso') {
         if (isUSD) saldosCalc[m.cuenta].usd += montoOriginal;
         else saldosCalc[m.cuenta].ars += montoOriginal;
@@ -109,10 +114,19 @@ export default function SaludFinanciera() {
         }
       }
 
-      // P&L (Excluye transferencias)
-      if (m.fecha.startsWith(yearSelected.toString()) && (m.tipo === 'ingreso' || m.tipo === 'egreso')) {
-        const mesIndex = mesesKeys.indexOf(m.fecha.substring(0, 7));
-        if (mesIndex !== -1) {
+      // Lógica de Arrastre para la Grilla
+      const fechaMov = m.fecha;
+      const anioMov = parseInt(fechaMov.substring(0, 4));
+      
+      if (anioMov < yearSelected) {
+        // Si el movimiento es de años anteriores, afecta al saldo con el que empezamos este año
+        if (m.tipo === 'ingreso') saldoInicialAnio += valorEnPesos;
+        else if (m.tipo === 'egreso') saldoInicialAnio -= valorEnPesos;
+        // Las transferencias no afectan el total consolidado
+      } else if (anioMov === yearSelected) {
+        // Si es del año actual, va a la grilla mensual
+        const mesIndex = mesesKeys.indexOf(fechaMov.substring(0, 7));
+        if (mesIndex !== -1 && (m.tipo === 'ingreso' || m.tipo === 'egreso')) {
           if (m.tipo === 'ingreso') {
             const clientId = m.cliente_id || 'sin-cliente';
             if (!ingresosPorCliente[clientId]) ingresosPorCliente[clientId] = { nombre: m.cliente?.nombre || 'Otros', data: Array(12).fill(0) };
@@ -128,7 +142,7 @@ export default function SaludFinanciera() {
       }
     });
 
-    // 3. Totales Consolidados
+    // 3. Calcular Totales y Arrastre de Caja
     let totalCajaARS = 0;
     let totalARS_puro = 0;
     let totalUSD_puro = 0;
@@ -138,12 +152,16 @@ export default function SaludFinanciera() {
       totalCajaARS += s.ars + (s.usd * cotizacion);
     });
 
-    const mesesConMov = totalesMes.filter(t => t.ingresos > 0 || t.egresos > 0);
-    const avgCostos = mesesConMov.length > 0 ? mesesConMov.reduce((acc, t) => acc + t.egresos, 0) / mesesConMov.length : 0;
+    let acumulado = saldoInicialAnio;
     totalesMes.forEach(t => { 
       t.neto = t.ingresos - t.egresos; 
       t.margen = t.ingresos > 0 ? (t.neto / t.ingresos) * 100 : 0; 
+      acumulado += t.neto;
+      t.saldoCaja = acumulado;
     });
+
+    const mesesConMov = totalesMes.filter(t => t.ingresos > 0 || t.egresos > 0);
+    const avgCostos = mesesConMov.length > 0 ? mesesConMov.reduce((acc, t) => acc + t.egresos, 0) / mesesConMov.length : 0;
 
     const totalCostoMensual = avgCostos + costoDireccion;
     const fondoReservaObjetivo = totalCostoMensual > 0 ? totalCostoMensual * 6 : 1000000; 
@@ -322,6 +340,11 @@ export default function SaludFinanciera() {
                 <td className="p-2 sticky left-0 bg-blue-50 z-10">RESULTADO NETO</td>
                 {grilla.totales.map((t, i) => <td key={i} className={`p-2 text-right font-mono ${t.neto < 0 ? 'text-red-600' : 'text-blue-900'}`}>{formatARS(t.neto)}</td>)}
                 <td className="p-2 text-right font-mono bg-blue-100">{formatARS(grilla.totales.reduce((a, t) => a + t.neto, 0))}</td>
+              </tr>
+              <tr className="bg-jengibre-dark text-white font-bold border-t-2 border-white/20">
+                <td className="p-2 sticky left-0 bg-jengibre-dark z-10">SALDO ACUMULADO (CAJA)</td>
+                {grilla.totales.map((t, i) => <td key={i} className="p-2 text-right font-mono">{formatARS(t.saldoCaja)}</td>)}
+                <td className="p-2 text-right font-mono bg-gray-800">{formatARS(grilla.totales[11].saldoCaja)}</td>
               </tr>
             </tbody>
           </table>
