@@ -64,7 +64,7 @@ export default function SaludFinanciera() {
     const saldosCalc: Record<string, { ars: number, usd: number }> = {};
     const saldosIniciales = configSaldos || {};
     
-    // 1. Cargar saldos iniciales con validación numérica
+    // 1. Cargar saldos iniciales
     Object.entries(saldosIniciales).forEach(([cuenta, monto]) => {
       const val = Number(monto);
       if (!isNaN(val)) {
@@ -128,14 +128,14 @@ export default function SaludFinanciera() {
       }
     });
 
-    // 3. Totales
-    let cajaTotalARS = 0;
-    let arsPuros = 0;
-    let usdPuros = 0;
+    // 3. Totales Consolidados
+    let totalCajaARS = 0;
+    let totalARS_puro = 0;
+    let totalUSD_puro = 0;
     Object.values(saldosCalc).forEach(s => {
-      arsPuros += s.ars;
-      usdPuros += s.usd;
-      cajaTotalARS += s.ars + (s.usd * cotizacion);
+      totalARS_puro += s.ars;
+      totalUSD_puro += s.usd;
+      totalCajaARS += s.ars + (s.usd * cotizacion);
     });
 
     const mesesConMov = totalesMes.filter(t => t.ingresos > 0 || t.egresos > 0);
@@ -146,20 +146,20 @@ export default function SaludFinanciera() {
     });
 
     const totalCostoMensual = avgCostos + costoDireccion;
-    const objFondo = totalCostoMensual > 0 ? totalCostoMensual * 6 : 1000000; 
-    const exc = Math.max(0, cajaTotalARS - objFondo);
-    const pct = Math.max(0, Math.min(100, (cajaTotalARS / objFondo) * 100));
+    const fondoReservaObjetivo = totalCostoMensual > 0 ? totalCostoMensual * 6 : 1000000; 
+    const excedente = Math.max(0, totalCajaARS - fondoReservaObjetivo);
+    const porcentajeFondo = Math.max(0, Math.min(100, (totalCajaARS / fondoReservaObjetivo) * 100));
 
     return { 
       saldos: saldosCalc, 
       mesesNames: defaultState.mesesNames, 
       totalCajaARS, 
-      totalARS_puro: arsPuros, 
-      totalUSD_puro: usdPuros, 
+      totalARS_puro, 
+      totalUSD_puro, 
       avgCostos, 
-      fondoReservaObjetivo: objFondo, 
-      excedente: exc, 
-      porcentajeFondo: pct, 
+      fondoReservaObjetivo, 
+      excedente, 
+      porcentajeFondo, 
       grilla: { ingresos: ingresosPorCliente, egresos: egresosPorConcepto, totales: totalesMes } 
     };
   }, [movimientos, configSaldos, yearSelected, cotizacion, costoDireccion]);
@@ -170,7 +170,7 @@ export default function SaludFinanciera() {
 
     const userMsg = chatInput;
     setChatInput('');
-    setChatMessages(prev => [...prev, { role: 'user',content: userMsg }]);
+    setChatMessages(prev => [...prev, { role: 'user', content: userMsg }]);
     setIsChatLoading(true);
 
     try {
