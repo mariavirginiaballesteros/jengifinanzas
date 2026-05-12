@@ -14,7 +14,6 @@ export default function SaludFinanciera() {
   const cotizacion = cotizacionData || 1000;
 
   const [settingsOpen, setSettingsOpen] = useState(false);
-  const [direccionInput, setDireccionInput] = useState('');
   const [chatInput, setChatInput] = useState('');
   const [chatMessages, setChatMessages] = useState<{role: 'user' | 'assistant', content: string}[]>([]);
   const [isChatLoading, setIsChatLoading] = useState(false);
@@ -46,16 +45,41 @@ export default function SaludFinanciera() {
 
   const costoDireccion = Number(configDireccion?.valor || 0);
 
+  const handleSendMessage = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!chatInput.trim() || isChatLoading) return;
+
+    const userMsg = chatInput;
+    setChatInput('');
+    setChatMessages(prev => [...prev, { role: 'user', content: userMsg }]);
+    setIsChatLoading(true);
+
+    try {
+      const { data, error } = await supabase.functions.invoke('asesor-financiero', {
+        body: { 
+          messages: [...chatMessages, { role: 'user', content: userMsg }],
+          contexto: { totalCajaARS, totalARS_puro, totalUSD_puro, avgCostos, costoDireccion, fondoReservaObjetivo, excedente }
+        }
+      });
+      if (error) throw error;
+      setChatMessages(prev => [...prev, { role: 'assistant', content: data.reply }]);
+    } catch (err: any) {
+      showError("No se pudo conectar con el asesor IA. Verificá la API Key.");
+    } finally {
+      setIsChatLoading(false);
+    }
+  };
+
   const { 
     saldos, grilla, mesesNames, totalCajaARS, totalARS_puro, totalUSD_puro, 
-    avgCostos, fondoReservaObjetivo, excedente, porcentajeFondo, aiInsights 
+    avgCostos, fondoReservaObjetivo, excedente, porcentajeFondo 
   } = useMemo(() => {
-    if (!movimientos) return { saldos: {}, grilla: { ingresos: {}, egresos: {}, totales: [] }, mesesNames: [], totalCajaARS: 0, totalARS_puro: 0, totalUSD_puro: 0, avgCostos: 0, fondoReservaObjetivo: 0, excedente: 0, porcentajeFondo: 0, aiInsights: [] };
+    if (!movimientos) return { saldos: {}, grilla: { ingresos: {}, egresos: {}, totales: [] }, mesesNames: [], totalCajaARS: 0, totalARS_puro: 0, totalUSD_puro: 0, avgCostos: 0, fondoReservaObjetivo: 0, excedente: 0, porcentajeFondo: 0 };
 
     const saldosCalc: Record<string, { ars: number, usd: number }> = {};
     const saldosIniciales = configSaldos || {};
     
-    // Inicializar con saldos de apertura
+    // 1. Cargar saldos iniciales
     Object.entries(saldosIniciales).forEach(([cuenta, monto]) => {
       saldosCalc[cuenta] = { ars: Number(monto), usd: 0 };
     });
@@ -66,9 +90,13 @@ export default function SaludFinanciera() {
     const egresosPorConcepto: Record<string, { data: number[] }> = {};
     const totalesMes = mesesKeys.map(() => ({ ingresos: 0, egresos: 0, neto: 0, margen: 0 }));
 
+    // 2. Procesar movimientos para saldos y P&L
     movimientos.forEach(m => {
       let isUSD = false;
-      try { const p = JSON.parse(m.notas || '{}'); if (p.moneda === 'USD') isUSD = true; } catch(e){}
+      try { 
+        const p = JSON.parse(m.notas || '{}'); 
+        if (p.moneda === 'USD') isUSD = true; 
+      } catch(e){}
       
       const montoOriginal = Number(m.monto);
       const valorEnPesos = isUSD ? montoOriginal * cotizacion : montoOriginal;
@@ -92,7 +120,7 @@ export default function SaludFinanciera() {
         }
       }
 
-      // Lógica de Grilla (P&L) - Solo ingresos/egresos reales
+      // Lógica de Grilla (P&L) - Solo ingresos/egresos reales (excluye transferencias)
       if (m.fecha.startsWith(yearSelected.toString()) && (m.tipo === 'ingreso' || m.tipo === 'egreso')) {
         const mesIndex = mesesKeys.indexOf(m.fecha.substring(0, 7));
         if (mesIndex !== -1) {
@@ -111,7 +139,7 @@ export default function SaludFinanciera() {
       }
     });
 
-    // Calcular Totales Finales
+    // 3. Calcular Totales Finales
     let cajaTotalARS = 0;
     let arsPuros = 0;
     let usdPuros = 0;
@@ -130,7 +158,7 @@ export default function SaludFinanciera() {
     const exc = Math.max(0, cajaTotalARS - objFondo);
     const pct = Math.max(0, Math.min(100, (cajaTotalARS / objFondo) * 100));
 
-    return { saldos: saldosCalc, mesesNames, totalCajaARS, totalARS_puro: arsPuros, totalUSD_puro: usdPuros, avgCostos, fondoReservaObjetivo: objFondo, excedente: exc, porcentajeFondo: pct, grilla: { ingresos: ingresosPorCliente, egresos: egresosPorConcepto, totales: totalesMes }, aiInsights: [] };
+    return { saldos: saldosCalc, mesesNames, totalCajaARS, totalARS_puro: arsPuros, totalUSD_puro: usdPuros, avgCostos, fondoReservaObjetivo: objFondo, excedente: exc, porcentajeFondo: pct, grilla: { ingresos: ingresosPorCliente, egresos: egresosPorConcepto, totales: totalesMes } };
   }, [movimientos, configSaldos, yearSelected, cotizacion, costoDireccion]);
 
   if (isLoadingMov) return <div className="p-12 text-center">Cargando...</div>;
@@ -170,7 +198,6 @@ export default function SaludFinanciera() {
         <section className="lg:col-span-6 bg-white border border-jengibre-border rounded-2xl p-6 shadow-sm">
           <div className="flex items-center justify-between mb-4">
             <h2 className="text-xl font-display font-bold text-jengibre-dark flex items-center gap-2"><ShieldCheck className="text-jengibre-green" /> Excedentes y Retiros</h2>
-            <button onClick={() => setSettingsOpen(true)} className="text-xs font-bold text-blue-600 bg-blue-50 px-2 py-1 rounded"><Settings size={14} /></button>
           </div>
           <div className="bg-gray-50 p-4 rounded-xl border border-gray-200 mb-6">
             <div className="flex justify-between items-end mb-2">
@@ -194,7 +221,7 @@ export default function SaludFinanciera() {
             </div>
             <div className="p-4 rounded-xl border border-gray-100 bg-gray-50">
               <p className="text-xs font-bold text-gray-500 uppercase mb-1">Meses Cubiertos</p>
-              <p className="text-2xl font-mono font-bold text-gray-700">{(cajaTotalARS / (avgCostos + costoDireccion || 1)).toFixed(1)}</p>
+              <p className="text-2xl font-mono font-bold text-gray-700">{(totalCajaARS / (avgCostos + costoDireccion || 1)).toFixed(1)}</p>
             </div>
           </div>
         </section>
@@ -208,10 +235,11 @@ export default function SaludFinanciera() {
                 <div className={`p-3 rounded-xl max-w-[85%] text-sm ${msg.role === 'user' ? 'bg-indigo-600' : 'bg-gray-800 border border-gray-700'}`}>{msg.content}</div>
               </div>
             ))}
+            {isChatLoading && <div className="flex justify-start"><div className="bg-gray-800 p-3 rounded-xl"><Loader2 className="animate-spin" size={18} /></div></div>}
           </div>
           <form onSubmit={handleSendMessage} className="flex gap-2">
             <input type="text" placeholder="¿Puedo retirar 1 millón hoy?" className="flex-1 bg-gray-900 border border-gray-600 rounded-lg px-4 py-2 text-sm outline-none focus:border-indigo-400" value={chatInput} onChange={e => setChatInput(e.target.value)} />
-            <button type="submit" className="bg-indigo-600 p-2 rounded-lg"><Send size={18} /></button>
+            <button type="submit" disabled={isChatLoading} className="bg-indigo-600 p-2 rounded-lg disabled:opacity-50"><Send size={18} /></button>
           </form>
         </section>
       </div>
