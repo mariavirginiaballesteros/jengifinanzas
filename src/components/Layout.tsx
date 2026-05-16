@@ -4,7 +4,7 @@ import { useAuth } from '@/contexts/AuthContext';
 import { 
   Home, Briefcase, Users, DollarSign, RefreshCw, 
   ShoppingCart, TrendingUp, Heart, MessageSquare, 
-  Settings, LogOut, Menu, X, FileText, Calculator
+  Settings, LogOut, Menu, X, FileText, Calculator, Wallet
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 
@@ -24,6 +24,7 @@ export default function Layout() {
     { to: "/recuperos", icon: <RefreshCw size={20} />, label: "Recuperos" },
     { to: "/compras", icon: <ShoppingCart size={20} />, label: "Compras (IVA)" },
     { to: "/proyeccion", icon: <TrendingUp size={20} />, label: "Proyección" },
+    { to: "/cashflow", icon: <Wallet size={20} />, label: "Cashflow" },
     { to: "/cotizador", icon: <Calculator size={20} />, label: "Cotizador" },
     { to: "/salud", icon: <Heart size={20} />, label: "Salud Financiera" },
     { to: "/contadora", icon: <MessageSquare size={20} />, label: "Contadora" },
