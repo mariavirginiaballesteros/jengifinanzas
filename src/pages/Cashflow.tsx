@@ -2,7 +2,7 @@ import React, { useMemo, useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { supabase } from '@/integrations/supabase/client';
 import { TipAlert } from '@/components/TipAlert';
-import { Wallet, ArrowUpRight, ArrowDownRight, Landmark, TrendingUp, Calendar, Info, ChevronDown, ChevronRight, Edit3, Save, X, AlertCircle } from 'lucide-react';
+import { Wallet, ArrowUpRight, ArrowDownRight, Landmark, TrendingUp, Calendar, Info, ChevronDown, ChevronRight, Edit3, Save, X, AlertCircle, Sparkles, Target } from 'lucide-react';
 import { formatARS } from '@/lib/utils';
 import { useCotizacionOficial } from '@/hooks/useCotizacion';
 import { showSuccess, showError } from '@/utils/toast';
@@ -23,7 +23,7 @@ export default function Cashflow() {
 
   const [expandedMonth, setExpandedMonth] = useState<string | null>(null);
   const [editingMonth, setEditingMonth] = useState<string | null>(null);
-  const [adjustmentValue, setAdjustmentValue] = useState('');
+  const [editForm, setEditForm] = useState({ income: '0', expense: '0' });
 
   // --- DATA FETCHING ---
   const { data: movimientos } = useQuery({
@@ -44,10 +44,10 @@ export default function Cashflow() {
   });
 
   const { data: configAdjustments } = useQuery({
-    queryKey: ['configuracion', 'cashflow_adjustments'],
+    queryKey: ['configuracion', 'cashflow_adjustments_v2'],
     queryFn: async () => {
-      const { data } = await supabase.from('configuracion').select('id, valor').eq('clave', 'cashflow_adjustments').maybeSingle();
-      if (!data?.valor) return { id: data?.id, values: {} };
+      const { data } = await supabase.from('configuracion').select('id, valor').eq('clave', 'cashflow_adjustments_v2').maybeSingle();
+      if (!data?.valor) return { id: data?.id, values: {} as Record<string, { income: number, expense: number }> };
       try { return { id: data.id, values: JSON.parse(data.valor) }; } catch { return { id: data.id, values: {} }; }
     }
   });
@@ -91,10 +91,10 @@ export default function Cashflow() {
 
   // --- MUTATIONS ---
   const saveAdjustmentMutation = useMutation({
-    mutationFn: async ({ month, value }: { month: string, value: number }) => {
+    mutationFn: async ({ month, income, expense }: { month: string, income: number, expense: number }) => {
       const currentValues = configAdjustments?.values || {};
-      const newValues = { ...currentValues, [month]: value };
-      const payload = { clave: 'cashflow_adjustments', valor: JSON.stringify(newValues), descripcion: 'Ajustes manuales por mes para el Cashflow' };
+      const newValues = { ...currentValues, [month]: { income, expense } };
+      const payload = { clave: 'cashflow_adjustments_v2', valor: JSON.stringify(newValues), descripcion: 'Simulaciones de ingresos y egresos potenciales por mes' };
       
       if (configAdjustments?.id) {
         const { error } = await supabase.from('configuracion').update(payload).eq('id', configAdjustments.id);
@@ -105,9 +105,9 @@ export default function Cashflow() {
       }
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['configuracion', 'cashflow_adjustments'] });
+      queryClient.invalidateQueries({ queryKey: ['configuracion', 'cashflow_adjustments_v2'] });
       setEditingMonth(null);
-      showSuccess('Ajuste guardado');
+      showSuccess('Simulación guardada');
     },
     onError: (err: any) => showError(err.message)
   });
@@ -116,7 +116,6 @@ export default function Cashflow() {
   const projection = useMemo(() => {
     if (!movimientos || !configSaldos || !facturas || !clientes || !equipo) return [];
 
-    // 1. Saldo Real Hoy
     let saldoActual = 0;
     Object.values(configSaldos).forEach(v => saldoActual += Number(v));
     movimientos.forEach(m => {
@@ -127,7 +126,6 @@ export default function Cashflow() {
       else if (m.tipo === 'egreso') saldoActual -= valor;
     });
 
-    // 2. Meses hasta Diciembre
     const hoy = new Date();
     const meses = [];
     for (let i = 0; i <= (11 - hoy.getMonth()); i++) {
@@ -144,8 +142,6 @@ export default function Cashflow() {
 
       // --- INGRESOS ---
       const ingresosDetalle: any[] = [];
-      
-      // Facturación pendiente cargada
       const facturasMes = facturas.filter(f => f.mes?.startsWith(mesKey) && f.estado !== 'pagado');
       facturasMes.forEach(f => {
         const monto = Number(f.monto_final || f.monto_base || 0);
@@ -153,26 +149,27 @@ export default function Cashflow() {
         ingresosDetalle.push({ nombre: cli?.nombre || 'Manual', monto, tipo: 'Factura Pendiente' });
       });
 
-      // Si no hay facturas, estimamos por MRR (solo si el contrato está vigente)
-      let ingresosEstimados = 0;
+      let clientesActivosCount = 0;
       if (facturasMes.length === 0) {
         clientes.forEach((c: any) => {
           const finString = c.fecha_fin ? c.fecha_fin.substring(0, 7) : '9999-99';
           const inicioString = c.fecha_inicio ? c.fecha_inicio.substring(0, 7) : '0000-00';
           if (finString >= mesKey && inicioString <= mesKey) {
             const monto = Number(c.monto_ars || 0) + (Number(c.monto_usd || 0) * cotizacion);
-            ingresosEstimados += monto;
             ingresosDetalle.push({ nombre: c.nombre, monto, tipo: 'Abono Estimado (MRR)' });
+            clientesActivosCount++;
           }
         });
+      } else {
+        clientesActivosCount = new Set(facturasMes.map(f => f.cliente_id)).size;
       }
 
-      const totalIngresos = ingresosDetalle.reduce((acc, i) => acc + i.monto, 0);
+      const simIncome = adjustments[mesKey]?.income || 0;
+      const totalIngresosBase = ingresosDetalle.reduce((acc, i) => acc + i.monto, 0);
+      const totalIngresosFinal = totalIngresosBase + simIncome;
 
       // --- EGRESOS ---
       const egresosDetalle: any[] = [];
-      
-      // Equipo (Sueldos base + Asignaciones si el proyecto está vigente)
       let totalEquipo = 0;
       equipo.forEach(miembro => {
         const notasData = parseNotas(miembro.notas);
@@ -194,37 +191,39 @@ export default function Cashflow() {
         const totalMiembro = Number(miembro.honorario_mensual) + costoProyectos;
         if (totalMiembro > 0) {
           totalEquipo += totalMiembro;
-          egresosDetalle.push({ 
-            nombre: miembro.nombre, 
-            monto: totalMiembro, 
-            detalle: `Base: ${formatARS(miembro.honorario_mensual)} + Proy: ${proyectosMiembro.join(', ') || '-'}` 
-          });
+          egresosDetalle.push({ nombre: miembro.nombre, monto: totalMiembro, detalle: `Base: ${formatARS(miembro.honorario_mensual)} + Proy: ${proyectosMiembro.join(', ') || '-'}` });
         }
       });
 
-      // Gastos Fijos
-      if (gastosFijos > 0) {
-        egresosDetalle.push({ nombre: 'Gastos Fijos Estimados', monto: gastosFijos, detalle: 'Configuración general' });
-      }
+      if (gastosFijos > 0) egresosDetalle.push({ nombre: 'Gastos Fijos Estimados', monto: gastosFijos, detalle: 'Configuración general' });
 
-      const totalEgresos = totalEquipo + gastosFijos;
+      const simExpense = adjustments[mesKey]?.expense || 0;
+      const totalEgresosBase = totalEquipo + gastosFijos;
+      const totalEgresosFinal = totalEgresosBase + simExpense;
 
-      // --- AJUSTE MANUAL ---
-      const ajusteManual = Number(adjustments[mesKey] || 0);
-      
-      const netoMes = totalIngresos - totalEgresos + ajusteManual;
+      const netoMes = totalIngresosFinal - totalEgresosFinal;
       acumulado += netoMes;
+
+      // --- TICKET SALUDABLE ---
+      // Para un margen del 25%, el ingreso debe ser Egresos / 0.75
+      const ingresoObjetivo = totalEgresosFinal / 0.75;
+      const ticketSaludable = clientesActivosCount > 0 ? ingresoObjetivo / clientesActivosCount : 0;
 
       return {
         key: mesKey,
         label: date.toLocaleDateString('es-AR', { month: 'long', year: 'numeric' }),
-        ingresos: totalIngresos,
+        ingresos: totalIngresosFinal,
+        ingresosBase: totalIngresosBase,
+        ingresosSim: simIncome,
         ingresosDetalle,
-        egresos: totalEgresos,
+        egresos: totalEgresosFinal,
+        egresosBase: totalEgresosBase,
+        egresosSim: simExpense,
         egresosDetalle,
-        ajusteManual,
         neto: netoMes,
-        saldoFinal: acumulado
+        saldoFinal: acumulado,
+        ticketSaludable,
+        clientesActivosCount
       };
     });
   }, [movimientos, configSaldos, facturas, clientes, equipo, gastosFijos, cotizacion, configAdjustments]);
@@ -233,12 +232,19 @@ export default function Cashflow() {
 
   const handleStartEdit = (item: any) => {
     setEditingMonth(item.key);
-    setAdjustmentValue(item.ajusteManual.toString());
+    setEditForm({ 
+      income: item.ingresosSim.toString(), 
+      expense: item.egresosSim.toString() 
+    });
   };
 
   const handleSaveAdjustment = () => {
     if (!editingMonth) return;
-    saveAdjustmentMutation.mutate({ month: editingMonth, value: Number(adjustmentValue) });
+    saveAdjustmentMutation.mutate({ 
+      month: editingMonth, 
+      income: Number(editForm.income), 
+      expense: Number(editForm.expense) 
+    });
   };
 
   return (
@@ -249,7 +255,7 @@ export default function Cashflow() {
             <Wallet className="text-jengibre-primary" size={32} />
             Cashflow Proyectado
           </h1>
-          <p className="text-gray-600 mt-1">Evolución de tu liquidez real. Los costos de equipo se ajustan automáticamente si caen proyectos.</p>
+          <p className="text-gray-600 mt-1">Simulá escenarios de crecimiento y visualizá tu ticket promedio saludable.</p>
         </div>
         <div className="bg-white border border-jengibre-border p-4 rounded-2xl shadow-sm text-center min-w-[200px]">
           <p className="text-[10px] font-bold text-gray-400 uppercase tracking-widest mb-1">Saldo Real Hoy</p>
@@ -257,8 +263,8 @@ export default function Cashflow() {
         </div>
       </header>
 
-      <TipAlert id="cashflow_dynamic" title="💡 Proyección Inteligente">
-        Este Cashflow es dinámico: si un cliente tiene fecha de fin en Octubre, el sistema dejará de contar ese ingreso en Noviembre y **también restará automáticamente** lo que le pagás al equipo por ese proyecto específico.
+      <TipAlert id="cashflow_simulation" title="💡 Simulador de Escenarios">
+        Hacé clic en el ícono de edición de cualquier mes para agregar **Ingresos Potenciales** (ej. un nuevo cliente) o **Egresos Potenciales** (ej. una inversión) y ver cómo impacta en tu caja a largo plazo.
       </TipAlert>
 
       <div className="bg-white border border-jengibre-border rounded-2xl overflow-hidden shadow-sm mb-8">
@@ -266,9 +272,6 @@ export default function Cashflow() {
           <h2 className="font-display font-bold text-lg text-gray-800 flex items-center gap-2">
             <Calendar size={20} className="text-jengibre-primary" /> Cronograma de Liquidez
           </h2>
-          <div className="flex items-center gap-4">
-            <span className="text-[10px] font-bold text-gray-400 uppercase">Hacé clic en un mes para ver el desglose</span>
-          </div>
         </div>
         
         <div className="overflow-x-auto">
@@ -277,17 +280,18 @@ export default function Cashflow() {
               <tr className="bg-gray-50/50 text-gray-500 uppercase tracking-wider text-[10px] font-bold border-b border-gray-100">
                 <th className="px-6 py-4 w-10"></th>
                 <th className="px-6 py-4">Mes</th>
-                <th className="px-6 py-4 text-right">Ingresos</th>
-                <th className="px-6 py-4 text-right">Egresos</th>
-                <th className="px-6 py-4 text-right">Ajuste Manual</th>
+                <th className="px-6 py-4 text-right">Ingresos (Real + Sim)</th>
+                <th className="px-6 py-4 text-right">Egresos (Real + Sim)</th>
                 <th className="px-6 py-4 text-right">Neto Mes</th>
                 <th className="px-6 py-4 text-right bg-jengibre-cream/20">Saldo Final</th>
+                <th className="px-6 py-4 text-center w-20">Simular</th>
               </tr>
             </thead>
             <tbody>
               {projection.map((item, i) => {
                 const isExpanded = expandedMonth === item.key;
                 const isEditing = editingMonth === item.key;
+                const isRed = item.neto < 0;
 
                 return (
                   <React.Fragment key={item.key}>
@@ -302,50 +306,70 @@ export default function Cashflow() {
                         {item.label}
                         {i === 0 && <span className="ml-2 text-[9px] bg-blue-600 text-white px-1.5 py-0.5 rounded-full uppercase">Actual</span>}
                       </td>
-                      <td className="px-6 py-5 text-right font-mono text-green-600 font-medium">{formatARS(item.ingresos)}</td>
-                      <td className="px-6 py-5 text-right font-mono text-red-500 font-medium">{formatARS(item.egresos)}</td>
-                      <td className="px-6 py-5 text-right" onClick={(e) => e.stopPropagation()}>
-                        {isEditing ? (
-                          <div className="flex items-center justify-end gap-2">
-                            <input 
-                              type="number" 
-                              className="w-24 border border-blue-300 rounded p-1 text-right text-xs font-mono outline-none focus:ring-2 focus:ring-blue-500"
-                              value={adjustmentValue}
-                              onChange={e => setAdjustmentValue(e.target.value)}
-                              autoFocus
-                            />
-                            <button onClick={handleSaveAdjustment} className="p-1 text-green-600 hover:bg-green-50 rounded"><Save size={14} /></button>
-                            <button onClick={() => setEditingMonth(null)} className="p-1 text-gray-400 hover:bg-gray-50 rounded"><X size={14} /></button>
-                          </div>
-                        ) : (
-                          <div className="flex items-center justify-end gap-2 group">
-                            <span className={`font-mono text-xs ${item.ajusteManual !== 0 ? 'text-blue-600 font-bold' : 'text-gray-300'}`}>
-                              {item.ajusteManual > 0 ? '+' : ''}{formatARS(item.ajusteManual)}
-                            </span>
-                            <button onClick={() => handleStartEdit(item)} className="p-1 text-gray-300 hover:text-blue-600 opacity-0 group-hover:opacity-100 transition-opacity">
-                              <Edit3 size={14} />
-                            </button>
-                          </div>
-                        )}
+                      <td className="px-6 py-5 text-right">
+                        <div className="font-mono text-green-600 font-bold">{formatARS(item.ingresos)}</div>
+                        {item.ingresosSim !== 0 && <div className="text-[10px] text-blue-500 font-bold">Sim: +{formatARS(item.ingresosSim)}</div>}
                       </td>
-                      <td className={`px-6 py-5 text-right font-mono font-bold ${item.neto >= 0 ? 'text-green-700' : 'text-red-700'}`}>
+                      <td className="px-6 py-5 text-right">
+                        <div className="font-mono text-red-500 font-bold">{formatARS(item.egresos)}</div>
+                        {item.egresosSim !== 0 && <div className="text-[10px] text-orange-500 font-bold">Sim: +{formatARS(item.egresosSim)}</div>}
+                      </td>
+                      <td className={`px-6 py-5 text-right font-mono font-bold ${isRed ? 'text-red-700' : 'text-green-700'}`}>
                         {item.neto >= 0 ? '+' : ''}{formatARS(item.neto)}
                       </td>
                       <td className="px-6 py-5 text-right font-mono font-bold text-lg text-jengibre-dark bg-jengibre-cream/10">
                         {formatARS(item.saldoFinal)}
                       </td>
+                      <td className="px-6 py-5 text-center" onClick={(e) => e.stopPropagation()}>
+                        <button onClick={() => handleStartEdit(item)} className="p-2 text-gray-400 hover:text-jengibre-primary hover:bg-jengibre-cream rounded-lg transition-colors">
+                          <Edit3 size={18} />
+                        </button>
+                      </td>
                     </tr>
 
+                    {/* MODAL DE EDICIÓN EN LÍNEA */}
+                    {isEditing && (
+                      <tr className="bg-blue-50/50 border-b border-blue-100">
+                        <td colSpan={7} className="px-12 py-6">
+                          <div className="flex flex-col sm:flex-row items-end gap-6">
+                            <div className="flex-1 space-y-4">
+                              <h4 className="text-sm font-bold text-blue-900 flex items-center gap-2"><Sparkles size={16} /> Simular Escenario para {item.label}</h4>
+                              <div className="grid grid-cols-2 gap-4">
+                                <div>
+                                  <label className="block text-[10px] font-bold text-gray-500 uppercase mb-1">Ingresos Potenciales (+)</label>
+                                  <div className="relative">
+                                    <span className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 font-bold">$</span>
+                                    <input type="number" className="w-full border border-blue-200 rounded-lg p-2 pl-8 outline-none focus:ring-2 focus:ring-blue-500 font-mono" value={editForm.income} onChange={e => setEditForm({...editForm, income: e.target.value})} />
+                                  </div>
+                                </div>
+                                <div>
+                                  <label className="block text-[10px] font-bold text-gray-500 uppercase mb-1">Egresos Potenciales (-)</label>
+                                  <div className="relative">
+                                    <span className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 font-bold">$</span>
+                                    <input type="number" className="w-full border border-blue-200 rounded-lg p-2 pl-8 outline-none focus:ring-2 focus:ring-blue-500 font-mono" value={editForm.expense} onChange={e => setEditForm({...editForm, expense: e.target.value})} />
+                                  </div>
+                                </div>
+                              </div>
+                            </div>
+                            <div className="flex gap-2">
+                              <button onClick={() => setEditingMonth(null)} className="px-4 py-2 text-gray-500 font-bold hover:bg-gray-100 rounded-lg">Cancelar</button>
+                              <button onClick={handleSaveAdjustment} className="bg-blue-600 text-white px-6 py-2 rounded-lg font-bold shadow-md hover:bg-blue-700 transition-colors">Guardar Simulación</button>
+                            </div>
+                          </div>
+                        </td>
+                      </tr>
+                    )}
+
                     {/* DESGLOSE EXPANDIDO */}
-                    {isExpanded && (
+                    {isExpanded && !isEditing && (
                       <tr className="bg-gray-50/50 animate-in slide-in-from-top-2">
                         <td colSpan={7} className="px-12 py-6 border-b border-gray-100">
-                          <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
+                          <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
                             
                             {/* DETALLE INGRESOS */}
                             <div>
                               <h4 className="text-xs font-bold text-green-700 uppercase tracking-widest mb-3 flex items-center gap-2">
-                                <ArrowUpRight size={14} /> Composición de Ingresos
+                                <ArrowUpRight size={14} /> Ingresos Reales
                               </h4>
                               <div className="space-y-2">
                                 {item.ingresosDetalle.map((ing: any, idx: number) => (
@@ -357,14 +381,13 @@ export default function Cashflow() {
                                     <span className="font-mono font-bold text-green-600 text-xs">{formatARS(ing.monto)}</span>
                                   </div>
                                 ))}
-                                {item.ingresosDetalle.length === 0 && <p className="text-xs text-gray-400 italic">Sin ingresos proyectados.</p>}
                               </div>
                             </div>
 
                             {/* DETALLE EGRESOS */}
                             <div>
                               <h4 className="text-xs font-bold text-red-700 uppercase tracking-widest mb-3 flex items-center gap-2">
-                                <ArrowDownRight size={14} /> Composición de Egresos
+                                <ArrowDownRight size={14} /> Egresos Reales
                               </h4>
                               <div className="space-y-2">
                                 {item.egresosDetalle.map((egr: any, idx: number) => (
@@ -379,16 +402,19 @@ export default function Cashflow() {
                               </div>
                             </div>
 
-                          </div>
-
-                          {item.ajusteManual !== 0 && (
-                            <div className="mt-6 p-3 bg-blue-50 border border-blue-100 rounded-lg flex items-center gap-3">
-                              <AlertCircle size={16} className="text-blue-600" />
-                              <p className="text-xs text-blue-800">
-                                Este mes incluye un <strong>ajuste manual de {formatARS(item.ajusteManual)}</strong> aplicado por el usuario.
+                            {/* TICKET SALUDABLE */}
+                            <div className={`p-5 rounded-2xl border flex flex-col justify-center items-center text-center ${isRed ? 'bg-red-50 border-red-100' : 'bg-green-50 border-green-100'}`}>
+                              <Target className={isRed ? 'text-red-600 mb-2' : 'text-green-600 mb-2'} size={32} />
+                              <h4 className="text-xs font-bold text-gray-500 uppercase tracking-widest mb-1">Ticket Promedio Saludable</h4>
+                              <p className={`text-2xl font-mono font-bold ${isRed ? 'text-red-700' : 'text-green-700'}`}>{formatARS(item.ticketSaludable)}</p>
+                              <p className="text-[10px] text-gray-500 mt-2 leading-tight">
+                                {isRed 
+                                  ? `Para cubrir costos y tener un 25% de margen, cada uno de tus ${item.clientesActivosCount} clientes debería pagar este monto.` 
+                                  : `¡Felicidades! Tu ticket actual supera el mínimo saludable para este nivel de costos.`}
                               </p>
                             </div>
-                          )}
+
+                          </div>
                         </td>
                       </tr>
                     )}
