@@ -1,4 +1,4 @@
-import React, { useMemo, useState, useEffect } from 'react';
+import React, { useMemo, useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { supabase } from '@/integrations/supabase/client';
 import { TipAlert } from '@/components/TipAlert';
@@ -250,9 +250,18 @@ export default function Cashflow() {
   // --- HANDLERS FORMULARIO ---
   const handleStartEdit = (item: any) => {
     const adj = configAdjustments?.values[item.key] || { incomes: [], expenses: [] };
-    setEditIncomes(adj.incomes);
-    setEditExpenses(adj.expenses);
+    setEditIncomes(adj.incomes || []);
+    setEditExpenses(adj.expenses || []);
     setEditingMonth(item.key);
+  };
+
+  const handleSaveAdjustment = () => {
+    if (!editingMonth) return;
+    saveAdjustmentMutation.mutate({ 
+      month: editingMonth, 
+      incomes: editIncomes, 
+      expenses: editExpenses 
+    });
   };
 
   const addSimItem = (type: 'income' | 'expense') => {
