@@ -1,11 +1,22 @@
-import React, { useMemo, useState } from 'react';
+import React, { useMemo, useState, useEffect } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { supabase } from '@/integrations/supabase/client';
 import { TipAlert } from '@/components/TipAlert';
-import { Wallet, ArrowUpRight, ArrowDownRight, Landmark, TrendingUp, Calendar, Info, ChevronDown, ChevronRight, Edit3, Save, X, AlertCircle, Sparkles, Target } from 'lucide-react';
+import { Wallet, ArrowUpRight, ArrowDownRight, Landmark, TrendingUp, Calendar, Info, ChevronDown, ChevronRight, Edit3, Save, X, AlertCircle, Sparkles, Target, Plus, Trash2 } from 'lucide-react';
 import { formatARS } from '@/lib/utils';
 import { useCotizacionOficial } from '@/hooks/useCotizacion';
 import { showSuccess, showError } from '@/utils/toast';
+
+interface SimItem {
+  id: string;
+  label: string;
+  amount: number;
+}
+
+interface MonthAdjustment {
+  incomes: SimItem[];
+  expenses: SimItem[];
+}
 
 const parseNotas = (notasStr: string | null) => {
   if (!notasStr) return { asignaciones: {} as Record<string, number> };
@@ -23,7 +34,10 @@ export default function Cashflow() {
 
   const [expandedMonth, setExpandedMonth] = useState<string | null>(null);
   const [editingMonth, setEditingMonth] = useState<string | null>(null);
-  const [editForm, setEditForm] = useState({ income: '0', expense: '0' });
+  
+  // Estado para el formulario de edición
+  const [editIncomes, setEditIncomes] = useState<SimItem[]>([]);
+  const [editExpenses, setEditExpenses] = useState<SimItem[]>([]);
 
   // --- DATA FETCHING ---
   const { data: movimientos } = useQuery({
@@ -44,10 +58,10 @@ export default function Cashflow() {
   });
 
   const { data: configAdjustments } = useQuery({
-    queryKey: ['configuracion', 'cashflow_adjustments_v2'],
+    queryKey: ['configuracion', 'cashflow_adjustments_v3'],
     queryFn: async () => {
-      const { data } = await supabase.from('configuracion').select('id, valor').eq('clave', 'cashflow_adjustments_v2').maybeSingle();
-      if (!data?.valor) return { id: data?.id, values: {} as Record<string, { income: number, expense: number }> };
+      const { data } = await supabase.from('configuracion').select('id, valor').eq('clave', 'cashflow_adjustments_v3').maybeSingle();
+      if (!data?.valor) return { id: data?.id, values: {} as Record<string, MonthAdjustment> };
       try { return { id: data.id, values: JSON.parse(data.valor) }; } catch { return { id: data.id, values: {} }; }
     }
   });
@@ -91,10 +105,10 @@ export default function Cashflow() {
 
   // --- MUTATIONS ---
   const saveAdjustmentMutation = useMutation({
-    mutationFn: async ({ month, income, expense }: { month: string, income: number, expense: number }) => {
+    mutationFn: async ({ month, incomes, expenses }: { month: string, incomes: SimItem[], expenses: SimItem[] }) => {
       const currentValues = configAdjustments?.values || {};
-      const newValues = { ...currentValues, [month]: { income, expense } };
-      const payload = { clave: 'cashflow_adjustments_v2', valor: JSON.stringify(newValues), descripcion: 'Simulaciones de ingresos y egresos potenciales por mes' };
+      const newValues = { ...currentValues, [month]: { incomes, expenses } };
+      const payload = { clave: 'cashflow_adjustments_v3', valor: JSON.stringify(newValues), descripcion: 'Simulaciones detalladas de ingresos y egresos potenciales' };
       
       if (configAdjustments?.id) {
         const { error } = await supabase.from('configuracion').update(payload).eq('id', configAdjustments.id);
@@ -105,7 +119,7 @@ export default function Cashflow() {
       }
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['configuracion', 'cashflow_adjustments_v2'] });
+      queryClient.invalidateQueries({ queryKey: ['configuracion', 'cashflow_adjustments_v3'] });
       setEditingMonth(null);
       showSuccess('Simulación guardada');
     },
@@ -138,15 +152,14 @@ export default function Cashflow() {
 
     return meses.map((date, index) => {
       const mesKey = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}`;
-      const esMesActual = index === 0;
-
+      
       // --- INGRESOS ---
       const ingresosDetalle: any[] = [];
       const facturasMes = facturas.filter(f => f.mes?.startsWith(mesKey) && f.estado !== 'pagado');
       facturasMes.forEach(f => {
         const monto = Number(f.monto_final || f.monto_base || 0);
         const cli = clientes.find(c => c.id === f.cliente_id);
-        ingresosDetalle.push({ nombre: cli?.nombre || 'Manual', monto, tipo: 'Factura Pendiente' });
+        ingresosDetalle.push({ nombre: cli?.nombre || 'Manual', monto, tipo: 'Factura Pendiente', isSim: false });
       });
 
       let clientesActivosCount = 0;
@@ -156,7 +169,7 @@ export default function Cashflow() {
           const inicioString = c.fecha_inicio ? c.fecha_inicio.substring(0, 7) : '0000-00';
           if (finString >= mesKey && inicioString <= mesKey) {
             const monto = Number(c.monto_ars || 0) + (Number(c.monto_usd || 0) * cotizacion);
-            ingresosDetalle.push({ nombre: c.nombre, monto, tipo: 'Abono Estimado (MRR)' });
+            ingresosDetalle.push({ nombre: c.nombre, monto, tipo: 'Abono Estimado (MRR)', isSim: false });
             clientesActivosCount++;
           }
         });
@@ -164,9 +177,13 @@ export default function Cashflow() {
         clientesActivosCount = new Set(facturasMes.map(f => f.cliente_id)).size;
       }
 
-      const simIncome = adjustments[mesKey]?.income || 0;
-      const totalIngresosBase = ingresosDetalle.reduce((acc, i) => acc + i.monto, 0);
-      const totalIngresosFinal = totalIngresosBase + simIncome;
+      // Sumar ingresos simulados
+      const simIncomes = adjustments[mesKey]?.incomes || [];
+      simIncomes.forEach(item => {
+        ingresosDetalle.push({ nombre: item.label, monto: item.amount, tipo: 'Simulación', isSim: true });
+      });
+
+      const totalIngresos = ingresosDetalle.reduce((acc, i) => acc + i.monto, 0);
 
       // --- EGRESOS ---
       const egresosDetalle: any[] = [];
@@ -191,60 +208,68 @@ export default function Cashflow() {
         const totalMiembro = Number(miembro.honorario_mensual) + costoProyectos;
         if (totalMiembro > 0) {
           totalEquipo += totalMiembro;
-          egresosDetalle.push({ nombre: miembro.nombre, monto: totalMiembro, detalle: `Base: ${formatARS(miembro.honorario_mensual)} + Proy: ${proyectosMiembro.join(', ') || '-'}` });
+          egresosDetalle.push({ nombre: miembro.nombre, monto: totalMiembro, detalle: `Base: ${formatARS(miembro.honorario_mensual)} + Proy: ${proyectosMiembro.join(', ') || '-'}`, isSim: false });
         }
       });
 
-      if (gastosFijos > 0) egresosDetalle.push({ nombre: 'Gastos Fijos Estimados', monto: gastosFijos, detalle: 'Configuración general' });
+      if (gastosFijos > 0) egresosDetalle.push({ nombre: 'Gastos Fijos Estimados', monto: gastosFijos, detalle: 'Configuración general', isSim: false });
 
-      const simExpense = adjustments[mesKey]?.expense || 0;
-      const totalEgresosBase = totalEquipo + gastosFijos;
-      const totalEgresosFinal = totalEgresosBase + simExpense;
+      // Sumar egresos simulados
+      const simExpenses = adjustments[mesKey]?.expenses || [];
+      simExpenses.forEach(item => {
+        egresosDetalle.push({ nombre: item.label, monto: item.amount, detalle: 'Simulación', isSim: true });
+      });
 
-      const netoMes = totalIngresosFinal - totalEgresosFinal;
+      const totalEgresos = totalEquipo + gastosFijos + simExpenses.reduce((acc, e) => acc + e.amount, 0);
+
+      const netoMes = totalIngresos - totalEgresos;
       acumulado += netoMes;
 
-      // --- TICKET SALUDABLE ---
-      // Para un margen del 25%, el ingreso debe ser Egresos / 0.75
-      const ingresoObjetivo = totalEgresosFinal / 0.75;
+      // Ticket Saludable
+      const ingresoObjetivo = totalEgresos / 0.75;
       const ticketSaludable = clientesActivosCount > 0 ? ingresoObjetivo / clientesActivosCount : 0;
 
       return {
         key: mesKey,
         label: date.toLocaleDateString('es-AR', { month: 'long', year: 'numeric' }),
-        ingresos: totalIngresosFinal,
-        ingresosBase: totalIngresosBase,
-        ingresosSim: simIncome,
+        ingresos: totalIngresos,
         ingresosDetalle,
-        egresos: totalEgresosFinal,
-        egresosBase: totalEgresosBase,
-        egresosSim: simExpense,
+        egresos: totalEgresos,
         egresosDetalle,
         neto: netoMes,
         saldoFinal: acumulado,
         ticketSaludable,
-        clientesActivosCount
+        clientesActivosCount,
+        hasSim: simIncomes.length > 0 || simExpenses.length > 0
       };
     });
   }, [movimientos, configSaldos, facturas, clientes, equipo, gastosFijos, cotizacion, configAdjustments]);
 
   const saldoHoy = projection[0]?.saldoFinal - projection[0]?.neto || 0;
 
+  // --- HANDLERS FORMULARIO ---
   const handleStartEdit = (item: any) => {
+    const adj = configAdjustments?.values[item.key] || { incomes: [], expenses: [] };
+    setEditIncomes(adj.incomes);
+    setEditExpenses(adj.expenses);
     setEditingMonth(item.key);
-    setEditForm({ 
-      income: item.ingresosSim.toString(), 
-      expense: item.egresosSim.toString() 
-    });
   };
 
-  const handleSaveAdjustment = () => {
-    if (!editingMonth) return;
-    saveAdjustmentMutation.mutate({ 
-      month: editingMonth, 
-      income: Number(editForm.income), 
-      expense: Number(editForm.expense) 
-    });
+  const addSimItem = (type: 'income' | 'expense') => {
+    const newItem = { id: crypto.randomUUID(), label: '', amount: 0 };
+    if (type === 'income') setEditIncomes([...editIncomes, newItem]);
+    else setEditExpenses([...editExpenses, newItem]);
+  };
+
+  const removeSimItem = (type: 'income' | 'expense', id: string) => {
+    if (type === 'income') setEditIncomes(editIncomes.filter(i => i.id !== id));
+    else setEditExpenses(editExpenses.filter(i => i.id !== id));
+  };
+
+  const updateSimItem = (type: 'income' | 'expense', id: string, field: 'label' | 'amount', value: any) => {
+    const setter = type === 'income' ? setEditIncomes : setEditExpenses;
+    const list = type === 'income' ? editIncomes : editExpenses;
+    setter(list.map(item => item.id === id ? { ...item, [field]: field === 'amount' ? Number(value) : value } : item));
   };
 
   return (
@@ -255,7 +280,7 @@ export default function Cashflow() {
             <Wallet className="text-jengibre-primary" size={32} />
             Cashflow Proyectado
           </h1>
-          <p className="text-gray-600 mt-1">Simulá escenarios de crecimiento y visualizá tu ticket promedio saludable.</p>
+          <p className="text-gray-600 mt-1">Simulá escenarios de crecimiento cargando múltiples ingresos y egresos potenciales.</p>
         </div>
         <div className="bg-white border border-jengibre-border p-4 rounded-2xl shadow-sm text-center min-w-[200px]">
           <p className="text-[10px] font-bold text-gray-400 uppercase tracking-widest mb-1">Saldo Real Hoy</p>
@@ -263,8 +288,8 @@ export default function Cashflow() {
         </div>
       </header>
 
-      <TipAlert id="cashflow_simulation" title="💡 Simulador de Escenarios">
-        Hacé clic en el ícono de edición de cualquier mes para agregar **Ingresos Potenciales** (ej. un nuevo cliente) o **Egresos Potenciales** (ej. una inversión) y ver cómo impacta en tu caja a largo plazo.
+      <TipAlert id="cashflow_multi_sim" title="💡 Simulaciones Detalladas">
+        Ahora podés cargar varios ingresos potenciales por mes. Por ejemplo: "Cliente Nuevo A" por $300k y "Renovación Cliente B" por $100k extra. Todo se suma a la proyección final.
       </TipAlert>
 
       <div className="bg-white border border-jengibre-border rounded-2xl overflow-hidden shadow-sm mb-8">
@@ -280,8 +305,8 @@ export default function Cashflow() {
               <tr className="bg-gray-50/50 text-gray-500 uppercase tracking-wider text-[10px] font-bold border-b border-gray-100">
                 <th className="px-6 py-4 w-10"></th>
                 <th className="px-6 py-4">Mes</th>
-                <th className="px-6 py-4 text-right">Ingresos (Real + Sim)</th>
-                <th className="px-6 py-4 text-right">Egresos (Real + Sim)</th>
+                <th className="px-6 py-4 text-right">Ingresos (Total)</th>
+                <th className="px-6 py-4 text-right">Egresos (Total)</th>
                 <th className="px-6 py-4 text-right">Neto Mes</th>
                 <th className="px-6 py-4 text-right bg-jengibre-cream/20">Saldo Final</th>
                 <th className="px-6 py-4 text-center w-20">Simular</th>
@@ -304,16 +329,10 @@ export default function Cashflow() {
                       </td>
                       <td className="px-6 py-5 font-bold text-gray-900 capitalize">
                         {item.label}
-                        {i === 0 && <span className="ml-2 text-[9px] bg-blue-600 text-white px-1.5 py-0.5 rounded-full uppercase">Actual</span>}
+                        {item.hasSim && <span className="ml-2 text-[9px] bg-blue-100 text-blue-700 px-1.5 py-0.5 rounded-full uppercase font-bold">Simulado</span>}
                       </td>
-                      <td className="px-6 py-5 text-right">
-                        <div className="font-mono text-green-600 font-bold">{formatARS(item.ingresos)}</div>
-                        {item.ingresosSim !== 0 && <div className="text-[10px] text-blue-500 font-bold">Sim: +{formatARS(item.ingresosSim)}</div>}
-                      </td>
-                      <td className="px-6 py-5 text-right">
-                        <div className="font-mono text-red-500 font-bold">{formatARS(item.egresos)}</div>
-                        {item.egresosSim !== 0 && <div className="text-[10px] text-orange-500 font-bold">Sim: +{formatARS(item.egresosSim)}</div>}
-                      </td>
+                      <td className="px-6 py-5 text-right font-mono text-green-600 font-bold">{formatARS(item.ingresos)}</td>
+                      <td className="px-6 py-5 text-right font-mono text-red-500 font-bold">{formatARS(item.egresos)}</td>
                       <td className={`px-6 py-5 text-right font-mono font-bold ${isRed ? 'text-red-700' : 'text-green-700'}`}>
                         {item.neto >= 0 ? '+' : ''}{formatARS(item.neto)}
                       </td>
@@ -327,33 +346,61 @@ export default function Cashflow() {
                       </td>
                     </tr>
 
-                    {/* MODAL DE EDICIÓN EN LÍNEA */}
+                    {/* MODAL DE EDICIÓN EN LÍNEA (MULTILÍNEA) */}
                     {isEditing && (
                       <tr className="bg-blue-50/50 border-b border-blue-100">
-                        <td colSpan={7} className="px-12 py-6">
-                          <div className="flex flex-col sm:flex-row items-end gap-6">
-                            <div className="flex-1 space-y-4">
-                              <h4 className="text-sm font-bold text-blue-900 flex items-center gap-2"><Sparkles size={16} /> Simular Escenario para {item.label}</h4>
-                              <div className="grid grid-cols-2 gap-4">
-                                <div>
-                                  <label className="block text-[10px] font-bold text-gray-500 uppercase mb-1">Ingresos Potenciales (+)</label>
-                                  <div className="relative">
-                                    <span className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 font-bold">$</span>
-                                    <input type="number" className="w-full border border-blue-200 rounded-lg p-2 pl-8 outline-none focus:ring-2 focus:ring-blue-500 font-mono" value={editForm.income} onChange={e => setEditForm({...editForm, income: e.target.value})} />
-                                  </div>
-                                </div>
-                                <div>
-                                  <label className="block text-[10px] font-bold text-gray-500 uppercase mb-1">Egresos Potenciales (-)</label>
-                                  <div className="relative">
-                                    <span className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 font-bold">$</span>
-                                    <input type="number" className="w-full border border-blue-200 rounded-lg p-2 pl-8 outline-none focus:ring-2 focus:ring-blue-500 font-mono" value={editForm.expense} onChange={e => setEditForm({...editForm, expense: e.target.value})} />
-                                  </div>
-                                </div>
+                        <td colSpan={7} className="px-12 py-8">
+                          <div className="space-y-8">
+                            <div className="flex items-center justify-between">
+                              <h4 className="text-lg font-display font-bold text-blue-900 flex items-center gap-2"><Sparkles size={20} /> Simular Escenario para {item.label}</h4>
+                              <div className="flex gap-3">
+                                <button onClick={() => setEditingMonth(null)} className="px-4 py-2 text-gray-500 font-bold hover:bg-gray-100 rounded-lg">Cancelar</button>
+                                <button onClick={handleSaveAdjustment} className="bg-blue-600 text-white px-6 py-2 rounded-lg font-bold shadow-md hover:bg-blue-700 transition-colors">Guardar Simulación</button>
                               </div>
                             </div>
-                            <div className="flex gap-2">
-                              <button onClick={() => setEditingMonth(null)} className="px-4 py-2 text-gray-500 font-bold hover:bg-gray-100 rounded-lg">Cancelar</button>
-                              <button onClick={handleSaveAdjustment} className="bg-blue-600 text-white px-6 py-2 rounded-lg font-bold shadow-md hover:bg-blue-700 transition-colors">Guardar Simulación</button>
+
+                            <div className="grid grid-cols-1 md:grid-cols-2 gap-12">
+                              {/* INGRESOS POTENCIALES */}
+                              <div className="space-y-4">
+                                <div className="flex justify-between items-center border-b border-blue-200 pb-2">
+                                  <h5 className="text-xs font-bold text-blue-800 uppercase tracking-widest">Ingresos Potenciales (+)</h5>
+                                  <button onClick={() => addSimItem('income')} className="text-[10px] font-bold bg-blue-600 text-white px-2 py-1 rounded flex items-center gap-1 hover:bg-blue-700"><Plus size={12}/> Agregar</button>
+                                </div>
+                                <div className="space-y-3">
+                                  {editIncomes.map(inc => (
+                                    <div key={inc.id} className="flex gap-2 items-center animate-in slide-in-from-left-2">
+                                      <input type="text" placeholder="Ej: Cliente Nuevo A" className="flex-1 border border-blue-200 rounded p-2 text-xs outline-none focus:ring-2 focus:ring-blue-500" value={inc.label} onChange={e => updateSimItem('income', inc.id, 'label', e.target.value)} />
+                                      <div className="relative w-32">
+                                        <span className="absolute left-2 top-1/2 -translate-y-1/2 text-gray-400 text-xs">$</span>
+                                        <input type="number" className="w-full border border-blue-200 rounded p-2 pl-5 text-xs font-mono outline-none focus:ring-2 focus:ring-blue-500" value={inc.amount} onChange={e => updateSimItem('income', inc.id, 'amount', e.target.value)} />
+                                      </div>
+                                      <button onClick={() => removeSimItem('income', inc.id)} className="text-gray-400 hover:text-red-500"><Trash2 size={16}/></button>
+                                    </div>
+                                  ))}
+                                  {editIncomes.length === 0 && <p className="text-xs text-gray-400 italic">No hay ingresos simulados.</p>}
+                                </div>
+                              </div>
+
+                              {/* EGRESOS POTENCIALES */}
+                              <div className="space-y-4">
+                                <div className="flex justify-between items-center border-b border-blue-200 pb-2">
+                                  <h5 className="text-xs font-bold text-blue-800 uppercase tracking-widest">Egresos Potenciales (-)</h5>
+                                  <button onClick={() => addSimItem('expense')} className="text-[10px] font-bold bg-blue-600 text-white px-2 py-1 rounded flex items-center gap-1 hover:bg-blue-700"><Plus size={12}/> Agregar</button>
+                                </div>
+                                <div className="space-y-3">
+                                  {editExpenses.map(exp => (
+                                    <div key={exp.id} className="flex gap-2 items-center animate-in slide-in-from-left-2">
+                                      <input type="text" placeholder="Ej: Inversión Software" className="flex-1 border border-blue-200 rounded p-2 text-xs outline-none focus:ring-2 focus:ring-blue-500" value={exp.label} onChange={e => updateSimItem('expense', exp.id, 'label', e.target.value)} />
+                                      <div className="relative w-32">
+                                        <span className="absolute left-2 top-1/2 -translate-y-1/2 text-gray-400 text-xs">$</span>
+                                        <input type="number" className="w-full border border-blue-200 rounded p-2 pl-5 text-xs font-mono outline-none focus:ring-2 focus:ring-blue-500" value={exp.amount} onChange={e => updateSimItem('expense', exp.id, 'amount', e.target.value)} />
+                                      </div>
+                                      <button onClick={() => removeSimItem('expense', exp.id)} className="text-gray-400 hover:text-red-500"><Trash2 size={16}/></button>
+                                    </div>
+                                  ))}
+                                  {editExpenses.length === 0 && <p className="text-xs text-gray-400 italic">No hay egresos simulados.</p>}
+                                </div>
+                              </div>
                             </div>
                           </div>
                         </td>
@@ -369,16 +416,16 @@ export default function Cashflow() {
                             {/* DETALLE INGRESOS */}
                             <div>
                               <h4 className="text-xs font-bold text-green-700 uppercase tracking-widest mb-3 flex items-center gap-2">
-                                <ArrowUpRight size={14} /> Ingresos Reales
+                                <ArrowUpRight size={14} /> Composición de Ingresos
                               </h4>
                               <div className="space-y-2">
                                 {item.ingresosDetalle.map((ing: any, idx: number) => (
-                                  <div key={idx} className="flex justify-between items-center bg-white p-2 rounded border border-gray-100 shadow-sm">
+                                  <div key={idx} className={`flex justify-between items-center p-2 rounded border shadow-sm ${ing.isSim ? 'bg-blue-50 border-blue-100' : 'bg-white border-gray-100'}`}>
                                     <div>
                                       <p className="font-bold text-gray-800 text-xs">{ing.nombre}</p>
                                       <p className="text-[10px] text-gray-400">{ing.tipo}</p>
                                     </div>
-                                    <span className="font-mono font-bold text-green-600 text-xs">{formatARS(ing.monto)}</span>
+                                    <span className={`font-mono font-bold text-xs ${ing.isSim ? 'text-blue-600' : 'text-green-600'}`}>{formatARS(ing.monto)}</span>
                                   </div>
                                 ))}
                               </div>
@@ -387,16 +434,16 @@ export default function Cashflow() {
                             {/* DETALLE EGRESOS */}
                             <div>
                               <h4 className="text-xs font-bold text-red-700 uppercase tracking-widest mb-3 flex items-center gap-2">
-                                <ArrowDownRight size={14} /> Egresos Reales
+                                <ArrowDownRight size={14} /> Composición de Egresos
                               </h4>
                               <div className="space-y-2">
                                 {item.egresosDetalle.map((egr: any, idx: number) => (
-                                  <div key={idx} className="flex justify-between items-center bg-white p-2 rounded border border-gray-100 shadow-sm">
+                                  <div key={idx} className={`flex justify-between items-center p-2 rounded border shadow-sm ${egr.isSim ? 'bg-orange-50 border-orange-100' : 'bg-white border-gray-100'}`}>
                                     <div className="flex-1 pr-4">
                                       <p className="font-bold text-gray-800 text-xs">{egr.nombre}</p>
                                       <p className="text-[10px] text-gray-400 leading-tight">{egr.detalle}</p>
                                     </div>
-                                    <span className="font-mono font-bold text-red-500 text-xs">{formatARS(egr.monto)}</span>
+                                    <span className={`font-mono font-bold text-xs ${egr.isSim ? 'text-orange-600' : 'text-red-500'}`}>{formatARS(egr.monto)}</span>
                                   </div>
                                 ))}
                               </div>
