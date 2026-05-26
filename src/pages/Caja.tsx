@@ -17,7 +17,7 @@ const CATEGORIAS_INGRESO = [
 
 const CATEGORIAS_EGRESO = [
   'Honorarios Equipo',
-  'Impuestos (AFIP/IIBB)',
+  'Impuestos (AFIP/IIBB/Ganancias)',
   'Software y Herramientas',
   'Gastos de Oficina',
   'Marketing y Ventas',
@@ -43,13 +43,13 @@ export default function Caja() {
   const defaultForm = {
     fecha: new Date().toISOString().split('T')[0],
     tipo: 'ingreso',
-    concepto: '', // Ahora será la Categoría
+    concepto: '', 
     monto: '',
     cuenta: '',
     cuenta_destino: '',
     cliente_id: '',
     tiene_iva: false,
-    notasTexto: '', // Ahora será el Detalle específico
+    notasTexto: '', 
     moneda: 'ARS'
   };
   const [formData, setFormData] = useState(defaultForm);
