@@ -2,10 +2,28 @@ import React, { useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { supabase } from '@/integrations/supabase/client';
 import { TipAlert } from '@/components/TipAlert';
-import { Plus, Edit2, Trash2, ArrowUpRight, ArrowDownRight, Wallet, RefreshCw } from 'lucide-react';
+import { Plus, Edit2, Trash2, ArrowUpRight, ArrowDownRight, Wallet, RefreshCw, Tag } from 'lucide-react';
 import { formatARS, formatUSD } from '@/lib/utils';
 import { showSuccess, showError } from '@/utils/toast';
 import { useCotizacionOficial } from '@/hooks/useCotizacion';
+
+const CATEGORIAS_INGRESO = [
+  'Abonos Mensuales',
+  'Recuperos de Gastos',
+  'Proyectos Especiales',
+  'Inversión de Socios',
+  'Otros Ingresos'
+];
+
+const CATEGORIAS_EGRESO = [
+  'Honorarios Equipo',
+  'Impuestos (AFIP/IIBB)',
+  'Software y Herramientas',
+  'Gastos de Oficina',
+  'Marketing y Ventas',
+  'Retiros de Dividendos',
+  'Otros Gastos'
+];
 
 const parseNotas = (notasStr: string | null) => {
   if (!notasStr) return { texto: '', moneda: 'ARS' };
@@ -25,13 +43,13 @@ export default function Caja() {
   const defaultForm = {
     fecha: new Date().toISOString().split('T')[0],
     tipo: 'ingreso',
-    concepto: '',
+    concepto: '', // Ahora será la Categoría
     monto: '',
     cuenta: '',
     cuenta_destino: '',
     cliente_id: '',
     tiene_iva: false,
-    notasTexto: '',
+    notasTexto: '', // Ahora será el Detalle específico
     moneda: 'ARS'
   };
   const [formData, setFormData] = useState(defaultForm);
@@ -107,6 +125,7 @@ export default function Caja() {
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
+    if (!formData.concepto) return showError('Debes elegir una categoría');
     if (!formData.monto || Number(formData.monto) <= 0) return showError('Monto inválido');
     if (formData.tipo === 'transferencia' && formData.cuenta === formData.cuenta_destino) return showError('Las cuentas deben ser distintas');
     saveMutation.mutate(formData);
@@ -137,15 +156,15 @@ export default function Caja() {
       <header className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-8">
         <div>
           <h1 className="text-3xl font-display font-bold text-jengibre-dark">Libro de Caja</h1>
-          <p className="text-gray-600 mt-1">Registrá ingresos, egresos y transferencias entre tus cuentas.</p>
+          <p className="text-gray-600 mt-1">Registrá ingresos y egresos categorizados para reportes limpios.</p>
         </div>
         <button onClick={() => setIsFormOpen(true)} className="bg-jengibre-primary text-white px-5 py-2.5 rounded-xl font-medium flex items-center gap-2 shadow-sm">
           <Plus size={20} /> Nuevo Movimiento
         </button>
       </header>
 
-      <TipAlert id="caja_transfers" title="💡 Transferencias Internas">
-        Usá el tipo <strong>Transferencia</strong> para mover plata entre tus cuentas (ej: de Macro a MP). Esto no afecta tu ganancia neta pero mantiene tus saldos reales al día.
+      <TipAlert id="caja_categories" title="💡 Categorización Inteligente">
+        Elegí una **Categoría** para que el sistema pueda tabular tus gastos automáticamente. Usá el campo **Detalle** para notas específicas como nombres de personas o facturas.
       </TipAlert>
 
       {isFormOpen && (
@@ -155,7 +174,7 @@ export default function Caja() {
             <form onSubmit={handleSubmit} className="space-y-4">
               <div className="flex bg-gray-100 p-1 rounded-lg mb-4">
                 {['ingreso', 'egreso', 'transferencia'].map(t => (
-                  <button key={t} type="button" onClick={() => setFormData({...formData, tipo: t})} className={`flex-1 py-2 rounded-md text-xs font-bold capitalize transition-colors ${formData.tipo === t ? 'bg-white shadow-sm text-jengibre-dark' : 'text-gray-500'}`}>{t}</button>
+                  <button key={t} type="button" onClick={() => setFormData({...formData, tipo: t, concepto: ''})} className={`flex-1 py-2 rounded-md text-xs font-bold capitalize transition-colors ${formData.tipo === t ? 'bg-white shadow-sm text-jengibre-dark' : 'text-gray-500'}`}>{t}</button>
                 ))}
               </div>
 
@@ -172,6 +191,23 @@ export default function Caja() {
                   </select>
                 </div>
               </div>
+
+              {formData.tipo !== 'transferencia' && (
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1 flex items-center gap-2"><Tag size={14}/> Categoría</label>
+                  <select 
+                    className="w-full border border-gray-300 rounded-lg p-2.5 outline-none bg-white font-bold text-jengibre-dark" 
+                    value={formData.concepto} 
+                    onChange={e => setFormData({...formData, concepto: e.target.value})} 
+                    required
+                  >
+                    <option value="">-- Seleccionar Categoría --</option>
+                    {(formData.tipo === 'ingreso' ? CATEGORIAS_INGRESO : CATEGORIAS_EGRESO).map(cat => (
+                      <option key={cat} value={cat}>{cat}</option>
+                    ))}
+                  </select>
+                </div>
+              )}
 
               {formData.tipo === 'transferencia' && (
                 <div>
@@ -198,8 +234,8 @@ export default function Caja() {
               </div>
 
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">Concepto</label>
-                <input required className="w-full border border-gray-300 rounded-lg p-2.5 outline-none" value={formData.concepto} onChange={e => setFormData({...formData, concepto: e.target.value})} />
+                <label className="block text-sm font-medium text-gray-700 mb-1">Detalle / Notas</label>
+                <input placeholder="Ej: Pago honorarios Julio - Juan Perez" className="w-full border border-gray-300 rounded-lg p-2.5 outline-none" value={formData.notasTexto} onChange={e => setFormData({...formData, notasTexto: e.target.value})} />
               </div>
 
               <div className="flex justify-end gap-3 mt-8 pt-4 border-t border-gray-100">
@@ -220,7 +256,7 @@ export default function Caja() {
               <thead>
                 <tr className="bg-jengibre-cream/50 text-jengibre-dark text-sm border-b border-jengibre-border">
                   <th className="px-4 py-3 font-bold">Fecha</th>
-                  <th className="px-4 py-3 font-bold">Concepto</th>
+                  <th className="px-4 py-3 font-bold">Categoría / Detalle</th>
                   <th className="px-4 py-3 font-bold">Cuenta</th>
                   <th className="px-4 py-3 font-bold text-right">Monto</th>
                   <th className="px-4 py-3 font-bold text-center">Acciones</th>
@@ -239,7 +275,10 @@ export default function Caja() {
                           <div className={`p-2 rounded-full ${isIngreso ? 'bg-green-100 text-green-700' : isTransfer ? 'bg-blue-100 text-blue-700' : 'bg-red-100 text-red-700'}`}>
                             {isIngreso ? <ArrowDownRight size={16} /> : isTransfer ? <RefreshCw size={16} /> : <ArrowUpRight size={16} />}
                           </div>
-                          <p className="font-bold text-gray-900">{mov.concepto}</p>
+                          <div>
+                            <p className="font-bold text-gray-900">{isTransfer ? 'Transferencia Interna' : mov.concepto}</p>
+                            {notas.texto && <p className="text-xs text-gray-400">{notas.texto}</p>}
+                          </div>
                         </div>
                       </td>
                       <td className="px-4 py-4 text-sm">
