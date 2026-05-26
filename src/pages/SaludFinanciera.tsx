@@ -5,7 +5,7 @@ import { formatARS, formatUSD } from '@/lib/utils';
 import { TipAlert } from '@/components/TipAlert';
 import { 
   ChevronLeft, ChevronRight, Bot, Sparkles, 
-  ShieldCheck, Lightbulb, Send, Loader2, Landmark 
+  ShieldCheck, Lightbulb, Send, Loader2, Landmark, X, FileText, Calendar, ArrowRight
 } from 'lucide-react';
 import { useCotizacionOficial } from '@/hooks/useCotizacion';
 import { showError } from '@/utils/toast';
@@ -18,6 +18,13 @@ export default function SaludFinanciera() {
   const [chatInput, setChatInput] = useState('');
   const [chatMessages, setChatMessages] = useState<{role: 'user' | 'assistant', content: string}[]>([]);
   const [isChatLoading, setIsChatLoading] = useState(false);
+
+  // Estado para el desglose de detalles
+  const [selectedDetail, setSelectedDetail] = useState<{
+    categoria: string,
+    mes: string,
+    movimientos: any[]
+  } | null>(null);
 
   const { data: movimientos, isLoading: isLoadingMov } = useQuery({
     queryKey: ['movimientos'],
@@ -40,7 +47,7 @@ export default function SaludFinanciera() {
   const { data: configDireccion } = useQuery({
     queryKey: ['configuracion', 'costo_direccion_mensual'],
     queryFn: async () => {
-      const { data } = await supabase.from('configuracion').select('valor').eq('clave', 'costo_direccion_mensual').maybeSingle();
+      const { data, error } = await supabase.from('configuracion').select('valor').eq('clave', 'costo_direccion_mensual').maybeSingle();
       return data;
     }
   });
@@ -72,8 +79,8 @@ export default function SaludFinanciera() {
     });
 
     const mesesKeys = Array.from({ length: 12 }, (_, i) => `${yearSelected}-${String(i + 1).padStart(2, '0')}`);
-    const ingresosPorCategoria: Record<string, { nombre: string, data: number[] }> = {};
-    const egresosPorCategoria: Record<string, { data: number[] }> = {};
+    const ingresosPorCategoria: Record<string, { nombre: string, data: number[], details: any[][] }> = {};
+    const egresosPorCategoria: Record<string, { nombre: string, data: number[], details: any[][] }> = {};
     const totalesMes = mesesKeys.map(() => ({ ingresos: 0, egresos: 0, neto: 0, margen:0, saldoCaja: 0 }));
 
     let saldoInicialAnio = 0;
@@ -83,10 +90,14 @@ export default function SaludFinanciera() {
       if (!m.fecha) return;
       
       let isUSD = false;
+      let notasTexto = '';
       try { 
         const p = JSON.parse(m.notas || '{}'); 
         if (p.moneda === 'USD') isUSD = true; 
-      } catch(e){}
+        notasTexto = p.texto || '';
+      } catch(e){
+        notasTexto = m.notas || '';
+      }
       
       const montoOriginal = Number(m.monto) || 0;
       const valorEnPesos = isUSD ? montoOriginal * cotizacion : montoOriginal;
@@ -119,15 +130,23 @@ export default function SaludFinanciera() {
       } else if (anioMov === yearSelected) {
         const mesIndex = mesesKeys.indexOf(fechaMov.substring(0, 7));
         if (mesIndex !== -1 && (m.tipo === 'ingreso' || m.tipo === 'egreso')) {
+          const movConDetalle = { ...m, valorEnPesos, notasTexto, isUSD };
+          
           if (m.tipo === 'ingreso') {
             const cat = m.concepto || 'Otros Ingresos';
-            if (!ingresosPorCategoria[cat]) ingresosPorCategoria[cat] = { nombre: cat, data: Array(12).fill(0) };
+            if (!ingresosPorCategoria[cat]) {
+              ingresosPorCategoria[cat] = { nombre: cat, data: Array(12).fill(0), details: Array(12).fill(0).map(() => []) };
+            }
             ingresosPorCategoria[cat].data[mesIndex] += valorEnPesos;
+            ingresosPorCategoria[cat].details[mesIndex].push(movConDetalle);
             totalesMes[mesIndex].ingresos += valorEnPesos;
           } else {
             const cat = m.concepto || 'Otros Gastos';
-            if (!egresosPorCategoria[cat]) egresosPorCategoria[cat] = { data: Array(12).fill(0) };
+            if (!egresosPorCategoria[cat]) {
+              egresosPorCategoria[cat] = { nombre: cat, data: Array(12).fill(0), details: Array(12).fill(0).map(() => []) };
+            }
             egresosPorCategoria[cat].data[mesIndex] += valorEnPesos;
+            egresosPorCategoria[cat].details[mesIndex].push(movConDetalle);
             totalesMes[mesIndex].egresos += valorEnPesos;
           }
         }
@@ -209,7 +228,58 @@ export default function SaludFinanciera() {
   );
 
   return (
-    <div className="animate-in fade-in duration-500 pb-12 max-w-[100vw] overflow-hidden">
+    <div className="animate-in fade-in duration-500 pb-12 max-w-[100vw] overflow-hidden relative">
+      
+      {/* PANEL DE DETALLES (DRILL-DOWN) */}
+      {selectedDetail && (
+        <div className="fixed inset-0 z-[100] flex justify-end">
+          <div className="absolute inset-0 bg-black/40 backdrop-blur-sm" onClick={() => setSelectedDetail(null)}></div>
+          <div className="relative w-full max-w-md bg-white h-full shadow-2xl animate-in slide-in-from-right duration-300 flex flex-col">
+            <div className="p-6 border-b border-gray-100 flex items-center justify-between bg-jengibre-dark text-white">
+              <div>
+                <h3 className="text-xl font-display font-bold">{selectedDetail.categoria}</h3>
+                <p className="text-xs opacity-80 uppercase tracking-widest font-bold">{selectedDetail.mes} {yearSelected}</p>
+              </div>
+              <button onClick={() => setSelectedDetail(null)} className="p-2 hover:bg-white/10 rounded-full transition-colors"><X size={24} /></button>
+            </div>
+            
+            <div className="flex-1 overflow-y-auto p-6 space-y-4">
+              {selectedDetail.movimientos.length === 0 ? (
+                <div className="text-center py-12 text-gray-400">
+                  <FileText size={48} className="mx-auto mb-4 opacity-20" />
+                  <p>No hay movimientos registrados.</p>
+                </div>
+              ) : (
+                selectedDetail.movimientos.map((m, i) => (
+                  <div key={i} className="bg-gray-50 border border-gray-100 p-4 rounded-xl shadow-sm">
+                    <div className="flex justify-between items-start mb-2">
+                      <span className="text-[10px] font-bold text-gray-400 uppercase flex items-center gap-1">
+                        <Calendar size={10} /> {new Date(m.fecha).toLocaleDateString('es-AR')}
+                      </span>
+                      <span className={`font-mono font-bold ${m.tipo === 'ingreso' ? 'text-green-600' : 'text-red-600'}`}>
+                        {m.tipo === 'ingreso' ? '+' : '-'}{m.isUSD ? formatUSD(m.monto) : formatARS(m.monto)}
+                      </span>
+                    </div>
+                    <p className="text-sm font-bold text-gray-800 mb-1">{m.notasTexto || 'Sin detalle específico'}</p>
+                    {m.cliente && <p className="text-[10px] text-blue-600 font-bold uppercase">Cliente: {m.cliente.nombre}</p>}
+                    <p className="text-[10px] text-gray-400 mt-2">Cuenta: {m.cuenta}</p>
+                  </div>
+                ))
+              )}
+            </div>
+            
+            <div className="p-6 border-t border-gray-100 bg-gray-50">
+              <div className="flex justify-between items-center">
+                <span className="font-bold text-gray-500 uppercase text-xs">Total del Mes:</span>
+                <span className="text-xl font-mono font-bold text-jengibre-dark">
+                  {formatARS(selectedDetail.movimientos.reduce((acc, m) => acc + m.valorEnPesos, 0))}
+                </span>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
       <header className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-6">
         <div>
           <h1 className="text-3xl font-display font-bold text-jengibre-dark">Salud Financiera Real</h1>
@@ -304,8 +374,16 @@ export default function SaludFinanciera() {
               <tr className="bg-jengibre-green text-white font-bold"><td className="p-2 sticky left-0 bg-jengibre-green z-10">INGRESOS</td><td colSpan={13}></td></tr>
               {Object.values(grilla.ingresos).map((c: any) => (
                 <tr key={c.nombre} className="border-b border-gray-100">
-                  <td className="p-2 border-r border-gray-300 sticky left-0 bg-white z-10">{c.nombre}</td>
-                  {c.data.map((v: number, i: number) => <td key={i} className="p-2 border-r border-gray-300 text-right font-mono text-blue-800">{v > 0 ? formatARS(v) : '-'}</td>)}
+                  <td className="p-2 border-r border-gray-300 sticky left-0 bg-white z-10 font-bold">{c.nombre}</td>
+                  {c.data.map((v: number, i: number) => (
+                    <td 
+                      key={i} 
+                      onClick={() => v > 0 && setSelectedDetail({ categoria: c.nombre, mes: mesesNames[i], movimientos: c.details[i] })}
+                      className={`p-2 border-r border-gray-300 text-right font-mono text-blue-800 ${v > 0 ? 'cursor-pointer hover:bg-blue-50 transition-colors' : ''}`}
+                    >
+                      {v > 0 ? formatARS(v) : '-'}
+                    </td>
+                  ))}
                   <td className="p-2 text-right font-mono font-bold bg-gray-50">{formatARS(c.data.reduce((a: number, b: number) => a + b, 0))}</td>
                 </tr>
               ))}
@@ -315,11 +393,19 @@ export default function SaludFinanciera() {
                 <td className="p-2 text-right font-mono bg-gray-100">{formatARS(grilla.totales.reduce((a, t) => a + t.ingresos, 0))}</td>
               </tr>
               <tr className="bg-red-600 text-white font-bold"><td className="p-2 sticky left-0 bg-red-600 z-10">EGRESOS</td><td colSpan={13}></td></tr>
-              {Object.entries(grilla.egresos).map(([concepto, info]: [string, any]) => (
-                <tr key={concepto} className="border-b border-gray-100">
-                  <td className="p-2 border-r border-gray-300 sticky left-0 bg-white z-10">{concepto}</td>
-                  {info.data.map((v: number, i: number) => <td key={i} className="p-2 border-r border-gray-300 text-right font-mono text-red-700">{v > 0 ? formatARS(v) : '-'}</td>)}
-                  <td className="p-2 text-right font-mono font-bold bg-gray-50">{formatARS(info.data.reduce((a: number, b: number) => a + b, 0))}</td>
+              {Object.values(grilla.egresos).map((c: any) => (
+                <tr key={c.nombre} className="border-b border-gray-100">
+                  <td className="p-2 border-r border-gray-300 sticky left-0 bg-white z-10 font-bold">{c.nombre}</td>
+                  {c.data.map((v: number, i: number) => (
+                    <td 
+                      key={i} 
+                      onClick={() => v > 0 && setSelectedDetail({ categoria: c.nombre, mes: mesesNames[i], movimientos: c.details[i] })}
+                      className={`p-2 border-r border-gray-300 text-right font-mono text-red-700 ${v > 0 ? 'cursor-pointer hover:bg-red-50 transition-colors' : ''}`}
+                    >
+                      {v > 0 ? formatARS(v) : '-'}
+                    </td>
+                  ))}
+                  <td className="p-2 text-right font-mono font-bold bg-gray-50">{formatARS(c.data.reduce((a: number, b: number) => a + b, 0))}</td>
                 </tr>
               ))}
               <tr className="bg-red-50 font-bold border-y border-red-200">
