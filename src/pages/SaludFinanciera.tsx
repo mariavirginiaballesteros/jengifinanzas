@@ -34,13 +34,14 @@ export default function SaludFinanciera() {
   const [isChatLoading, setIsChatLoading] = useState(false);
   const [isConfigOpen, setIsConfigOpen] = useState(false);
 
+  // Estado para el panel de detalles
   const [selectedDetail, setSelectedDetail] = useState<{
     categoria: string,
     mes: string,
     movimientos: any[]
   } | null>(null);
 
-  // Queries necesarias para el cálculo de "Monto Real a Hoy"
+  // Queries necesarias
   const { data: movimientos, isLoading: isLoadingMov } = useQuery({
     queryKey: ['movimientos'],
     queryFn: async () => {
@@ -212,7 +213,6 @@ export default function SaludFinanciera() {
       t.saldoCaja = acumulado;
     });
 
-    // --- LÓGICA DE MONTO REAL A HOY (PROYECTADO MES ACTUAL) ---
     const hoy = new Date();
     const mesActualKey = `${hoy.getFullYear()}-${String(hoy.getMonth() + 1).padStart(2, '0')}`;
     
