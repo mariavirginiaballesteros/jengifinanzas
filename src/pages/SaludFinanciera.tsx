@@ -1,16 +1,17 @@
 import React, { useMemo, useState } from 'react';
-import { useQuery } from '@tanstack/react-query';
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { supabase } from '@/integrations/supabase/client';
 import { formatARS, formatUSD } from '@/lib/utils';
 import { TipAlert } from '@/components/TipAlert';
 import { 
   ChevronLeft, ChevronRight, Bot, Sparkles, 
-  ShieldCheck, Lightbulb, Send, Loader2, Landmark, X, FileText, Calendar, ArrowRight
+  ShieldCheck, Lightbulb, Send, Loader2, Landmark, X, FileText, Calendar, Settings, Info
 } from 'lucide-react';
 import { useCotizacionOficial } from '@/hooks/useCotizacion';
-import { showError } from '@/utils/toast';
+import { showError, showSuccess } from '@/utils/toast';
 
 export default function SaludFinanciera() {
+  const queryClient = useQueryClient();
   const [yearSelected, setYearSelected] = useState(new Date().getFullYear());
   const { data: cotizacionData } = useCotizacionOficial();
   const cotizacion = Number(cotizacionData) || 1000;
@@ -18,6 +19,7 @@ export default function SaludFinanciera() {
   const [chatInput, setChatInput] = useState('');
   const [chatMessages, setChatMessages] = useState<{role: 'user' | 'assistant', content: string}[]>([]);
   const [isChatLoading, setIsChatLoading] = useState(false);
+  const [isConfigOpen, setIsConfigOpen] = useState(false);
 
   // Estado para el desglose de detalles
   const [selectedDetail, setSelectedDetail] = useState<{
@@ -26,6 +28,7 @@ export default function SaludFinanciera() {
     movimientos: any[]
   } | null>(null);
 
+  // Queries de Movimientos y Configuración
   const { data: movimientos, isLoading: isLoadingMov } = useQuery({
     queryKey: ['movimientos'],
     queryFn: async () => {
@@ -35,47 +38,63 @@ export default function SaludFinanciera() {
     }
   });
 
-  const { data: configSaldos } = useQuery({
-    queryKey: ['configuracion', 'saldos_iniciales'],
+  const { data: configRows } = useQuery({
+    queryKey: ['configuracion_salud'],
     queryFn: async () => {
-      const { data } = await supabase.from('configuracion').select('valor').eq('clave', 'saldos_iniciales').maybeSingle();
-      if (!data?.valor) return {};
-      try { return JSON.parse(data.valor); } catch { return {}; }
+      const { data } = await supabase.from('configuracion').select('*').in('clave', [
+        'saldos_iniciales', 
+        'costo_direccion_mensual', 
+        'gastos_fijos_estimados',
+        'extra_reserva_mensual'
+      ]);
+      return data || [];
     }
   });
 
-  const { data: configDireccion } = useQuery({
-    queryKey: ['configuracion', 'costo_direccion_mensual'],
-    queryFn: async () => {
-      const { data, error } = await supabase.from('configuracion').select('valor').eq('clave', 'costo_direccion_mensual').maybeSingle();
-      return data;
-    }
-  });
+  // Extraer valores de configuración
+  const configSaldos = JSON.parse(configRows?.find(r => r.clave === 'saldos_iniciales')?.valor || '{}');
+  const costoDireccion = Number(configRows?.find(r => r.clave === 'costo_direccion_mensual')?.valor || 0);
+  const gastosFijos = Number(configRows?.find(r => r.clave === 'gastos_fijos_estimados')?.valor || 0);
+  const extraReserva = Number(configRows?.find(r => r.clave === 'extra_reserva_mensual')?.valor || 0);
 
-  const costoDireccion = Number(configDireccion?.valor ?? 0);
+  // Mutación para guardar configuración
+  const saveConfigMutation = useMutation({
+    mutationFn: async (updates: { clave: string, valor: string }[]) => {
+      for (const update of updates) {
+        const existing = configRows?.find(r => r.clave === update.clave);
+        if (existing) {
+          await supabase.from('configuracion').update({ valor: update.valor }).eq('id', existing.id);
+        } else {
+          await supabase.from('configuracion').insert([{ clave: update.clave, valor: update.valor, descripcion: 'Configuración de Salud Financiera' }]);
+        }
+      }
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['configuracion_salud'] });
+      showSuccess('Meta de reserva actualizada');
+      setIsConfigOpen(false);
+    },
+    onError: (err: any) => showError(err.message)
+  });
 
   const { 
     saldos, grilla, mesesNames, totalCajaARS, totalARS_puro, totalUSD_puro, 
-    avgCostos, fondoReservaObjetivo, excedente, porcentajeFondo 
+    avgCostos, fondoReservaObjetivo, excedente, porcentajeFondo, costoMensualReserva 
   } = useMemo(() => {
     const defaultState = { 
       saldos: {}, 
       grilla: { ingresos: {}, egresos: {}, totales: Array(12).fill(0).map(() => ({ ingresos: 0, egresos: 0, neto: 0, margen: 0, saldoCaja: 0 })) }, 
       mesesNames: ['Ene', 'Feb', 'Mar', 'Abr', 'May', 'Jun', 'Jul', 'Ago', 'Sep', 'Oct', 'Nov', 'Dic'], 
       totalCajaARS: 0, totalARS_puro: 0, totalUSD_puro: 0, 
-      avgCostos: 0, fondoReservaObjetivo: 1000000, excedente: 0, porcentajeFondo: 0 
+      avgCostos: 0, fondoReservaObjetivo: 0, excedente: 0, porcentajeFondo: 0, costoMensualReserva: 0
     };
 
     if (!movimientos) return defaultState;
 
     const saldosCalc: Record<string, { ars: number, usd: number }> = {};
-    const saldosIniciales = configSaldos || {};
-    
-    Object.entries(saldosIniciales).forEach(([cuenta, monto]) => {
+    Object.entries(configSaldos).forEach(([cuenta, monto]) => {
       const val = Number(monto);
-      if (!isNaN(val)) {
-        saldosCalc[cuenta] = { ars: val, usd: 0 };
-      }
+      if (!isNaN(val)) saldosCalc[cuenta] = { ars: val, usd: 0 };
     });
 
     const mesesKeys = Array.from({ length: 12 }, (_, i) => `${yearSelected}-${String(i + 1).padStart(2, '0')}`);
@@ -88,16 +107,13 @@ export default function SaludFinanciera() {
 
     movimientos.forEach(m => {
       if (!m.fecha) return;
-      
       let isUSD = false;
       let notasTexto = '';
       try { 
         const p = JSON.parse(m.notas || '{}'); 
         if (p.moneda === 'USD') isUSD = true; 
         notasTexto = p.texto || '';
-      } catch(e){
-        notasTexto = m.notas || '';
-      }
+      } catch(e){ notasTexto = m.notas || ''; }
       
       const montoOriginal = Number(m.monto) || 0;
       const valorEnPesos = isUSD ? montoOriginal * cotizacion : montoOriginal;
@@ -121,30 +137,23 @@ export default function SaludFinanciera() {
         }
       }
 
-      const fechaMov = m.fecha;
-      const anioMov = parseInt(fechaMov.substring(0, 4));
-      
+      const anioMov = parseInt(m.fecha.substring(0, 4));
       if (anioMov < yearSelected) {
         if (m.tipo === 'ingreso') saldoInicialAnio += valorEnPesos;
         else if (m.tipo === 'egreso') saldoInicialAnio -= valorEnPesos;
       } else if (anioMov === yearSelected) {
-        const mesIndex = mesesKeys.indexOf(fechaMov.substring(0, 7));
+        const mesIndex = mesesKeys.indexOf(m.fecha.substring(0, 7));
         if (mesIndex !== -1 && (m.tipo === 'ingreso' || m.tipo === 'egreso')) {
           const movConDetalle = { ...m, valorEnPesos, notasTexto, isUSD };
-          
           if (m.tipo === 'ingreso') {
             const cat = m.concepto || 'Otros Ingresos';
-            if (!ingresosPorCategoria[cat]) {
-              ingresosPorCategoria[cat] = { nombre: cat, data: Array(12).fill(0), details: Array(12).fill(0).map(() => []) };
-            }
+            if (!ingresosPorCategoria[cat]) ingresosPorCategoria[cat] = { nombre: cat, data: Array(12).fill(0), details: Array(12).fill(0).map(() => []) };
             ingresosPorCategoria[cat].data[mesIndex] += valorEnPesos;
             ingresosPorCategoria[cat].details[mesIndex].push(movConDetalle);
             totalesMes[mesIndex].ingresos += valorEnPesos;
           } else {
             const cat = m.concepto || 'Otros Gastos';
-            if (!egresosPorCategoria[cat]) {
-              egresosPorCategoria[cat] = { nombre: cat, data: Array(12).fill(0), details: Array(12).fill(0).map(() => []) };
-            }
+            if (!egresosPorCategoria[cat]) egresosPorCategoria[cat] = { nombre: cat, data: Array(12).fill(0), details: Array(12).fill(0).map(() => []) };
             egresosPorCategoria[cat].data[mesIndex] += valorEnPesos;
             egresosPorCategoria[cat].details[mesIndex].push(movConDetalle);
             totalesMes[mesIndex].egresos += valorEnPesos;
@@ -173,10 +182,11 @@ export default function SaludFinanciera() {
     const mesesConMov = totalesMes.filter(t => t.ingresos > 0 || t.egresos > 0);
     const avgCostos = mesesConMov.length > 0 ? mesesConMov.reduce((acc, t) => acc + t.egresos, 0) / mesesConMov.length : 0;
 
-    const totalCostoMensual = avgCostos + costoDireccion;
-    const fondoReservaObjetivo = totalCostoMensual > 0 ? totalCostoMensual * 6 : 1000000; 
+    // NUEVA LÓGICA DE RESERVA SOLICITADA
+    const costoMensualReserva = gastosFijos + costoDireccion + extraReserva;
+    const fondoReservaObjetivo = costoMensualReserva * 6;
     const excedente = Math.max(0, totalCajaARS - fondoReservaObjetivo);
-    const porcentajeFondo = Math.max(0, Math.min(100, (totalCajaARS / fondoReservaObjetivo) * 100));
+    const porcentajeFondo = Math.max(0, Math.min(100, (totalCajaARS / (fondoReservaObjetivo || 1)) * 100));
 
     return { 
       saldos: saldosCalc, 
@@ -188,19 +198,18 @@ export default function SaludFinanciera() {
       fondoReservaObjetivo, 
       excedente, 
       porcentajeFondo, 
+      costoMensualReserva,
       grilla: { ingresos: ingresosPorCategoria, egresos: egresosPorCategoria, totales: totalesMes } 
     };
-  }, [movimientos, configSaldos, yearSelected, cotizacion, costoDireccion]);
+  }, [movimientos, configSaldos, yearSelected, cotizacion, costoDireccion, gastosFijos, extraReserva]);
 
   const handleSendMessage = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!chatInput.trim() || isChatLoading) return;
-
     const userMsg = chatInput;
     setChatInput('');
     setChatMessages(prev => [...prev, { role: 'user', content: userMsg }]);
     setIsChatLoading(true);
-
     try {
       const { data, error } = await supabase.functions.invoke('asesor-financiero', {
         body: { 
@@ -208,10 +217,7 @@ export default function SaludFinanciera() {
           contexto: { totalCajaARS, totalARS_puro, totalUSD_puro, avgCostos, costoDireccion, fondoReservaObjetivo, excedente }
         }
       });
-      
       if (error) throw error;
-      if (data?.error) throw new Error(data.error);
-      
       setChatMessages(prev => [...prev, { role: 'assistant', content: data.reply }]);
     } catch (err: any) {
       showError(err.message || "No se pudo conectar con el asesor IA.");
@@ -230,6 +236,52 @@ export default function SaludFinanciera() {
   return (
     <div className="animate-in fade-in duration-500 pb-12 max-w-[100vw] overflow-hidden relative">
       
+      {/* MODAL CONFIGURACIÓN META */}
+      {isConfigOpen && (
+        <div className="fixed inset-0 z-[110] flex items-center justify-center p-4">
+          <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" onClick={() => setIsConfigOpen(false)}></div>
+          <div className="relative bg-white rounded-2xl w-full max-w-md p-6 shadow-2xl animate-in zoom-in-95">
+            <h3 className="text-xl font-display font-bold mb-4 flex items-center gap-2">
+              <Settings className="text-jengibre-primary" /> Configurar Meta de Reserva
+            </h3>
+            <p className="text-sm text-gray-600 mb-6">Definí los costos estructurales que querés asegurar por 6 meses.</p>
+            
+            <form onSubmit={(e) => {
+              e.preventDefault();
+              const formData = new FormData(e.currentTarget);
+              saveConfigMutation.mutate([
+                { clave: 'gastos_fijos_estimados', valor: formData.get('fijos') as string },
+                { clave: 'costo_direccion_mensual', valor: formData.get('direccion') as string },
+                { clave: 'extra_reserva_mensual', valor: formData.get('extra') as string }
+              ]);
+            }} className="space-y-4">
+              <div>
+                <label className="block text-xs font-bold text-gray-500 uppercase mb-1">Gastos de Mantenimiento (Fijos)</label>
+                <input name="fijos" type="number" defaultValue={gastosFijos} className="w-full border border-gray-300 rounded-lg p-2.5 font-mono" />
+              </div>
+              <div>
+                <label className="block text-xs font-bold text-gray-500 uppercase mb-1">Sueldo Directora</label>
+                <input name="direccion" type="number" defaultValue={costoDireccion} className="w-full border border-gray-300 rounded-lg p-2.5 font-mono" />
+              </div>
+              <div>
+                <label className="block text-xs font-bold text-gray-500 uppercase mb-1">Extra de Seguridad Mensual</label>
+                <input name="extra" type="number" defaultValue={extraReserva} className="w-full border border-gray-300 rounded-lg p-2.5 font-mono" />
+              </div>
+              
+              <div className="bg-jengibre-cream p-3 rounded-xl text-center">
+                <p className="text-[10px] font-bold text-gray-500 uppercase">Nueva Meta Total (6 meses)</p>
+                <p className="text-lg font-mono font-bold text-jengibre-dark">Calculando...</p>
+              </div>
+
+              <div className="flex justify-end gap-3 pt-4">
+                <button type="button" onClick={() => setIsConfigOpen(false)} className="px-4 py-2 text-gray-500 font-bold">Cancelar</button>
+                <button type="submit" className="bg-jengibre-primary text-white px-6 py-2 rounded-lg font-bold">Guardar Cambios</button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
       {/* PANEL DE DETALLES (DRILL-DOWN) */}
       {selectedDetail && (
         <div className="fixed inset-0 z-[100] flex justify-end">
@@ -242,23 +294,15 @@ export default function SaludFinanciera() {
               </div>
               <button onClick={() => setSelectedDetail(null)} className="p-2 hover:bg-white/10 rounded-full transition-colors"><X size={24} /></button>
             </div>
-            
             <div className="flex-1 overflow-y-auto p-6 space-y-4">
               {selectedDetail.movimientos.length === 0 ? (
-                <div className="text-center py-12 text-gray-400">
-                  <FileText size={48} className="mx-auto mb-4 opacity-20" />
-                  <p>No hay movimientos registrados.</p>
-                </div>
+                <div className="text-center py-12 text-gray-400"><FileText size={48} className="mx-auto mb-4 opacity-20" /><p>No hay movimientos registrados.</p></div>
               ) : (
                 selectedDetail.movimientos.map((m, i) => (
                   <div key={i} className="bg-gray-50 border border-gray-100 p-4 rounded-xl shadow-sm">
                     <div className="flex justify-between items-start mb-2">
-                      <span className="text-[10px] font-bold text-gray-400 uppercase flex items-center gap-1">
-                        <Calendar size={10} /> {new Date(m.fecha).toLocaleDateString('es-AR')}
-                      </span>
-                      <span className={`font-mono font-bold ${m.tipo === 'ingreso' ? 'text-green-600' : 'text-red-600'}`}>
-                        {m.tipo === 'ingreso' ? '+' : '-'}{m.isUSD ? formatUSD(m.monto) : formatARS(m.monto)}
-                      </span>
+                      <span className="text-[10px] font-bold text-gray-400 uppercase flex items-center gap-1"><Calendar size={10} /> {new Date(m.fecha).toLocaleDateString('es-AR')}</span>
+                      <span className={`font-mono font-bold ${m.tipo === 'ingreso' ? 'text-green-600' : 'text-red-600'}`}>{m.tipo === 'ingreso' ? '+' : '-'}{m.isUSD ? formatUSD(m.monto) : formatARS(m.monto)}</span>
                     </div>
                     <p className="text-sm font-bold text-gray-800 mb-1">{m.notasTexto || 'Sin detalle específico'}</p>
                     {m.cliente && <p className="text-[10px] text-blue-600 font-bold uppercase">Cliente: {m.cliente.nombre}</p>}
@@ -267,13 +311,10 @@ export default function SaludFinanciera() {
                 ))
               )}
             </div>
-            
             <div className="p-6 border-t border-gray-100 bg-gray-50">
               <div className="flex justify-between items-center">
                 <span className="font-bold text-gray-500 uppercase text-xs">Total del Mes:</span>
-                <span className="text-xl font-mono font-bold text-jengibre-dark">
-                  {formatARS(selectedDetail.movimientos.reduce((acc, m) => acc + m.valorEnPesos, 0))}
-                </span>
+                <span className="text-xl font-mono font-bold text-jengibre-dark">{formatARS(selectedDetail.movimientos.reduce((acc, m) => acc + m.valorEnPesos, 0))}</span>
               </div>
             </div>
           </div>
@@ -313,22 +354,31 @@ export default function SaludFinanciera() {
         <section className="lg:col-span-6 bg-white border border-jengibre-border rounded-2xl p-6 shadow-sm">
           <div className="flex items-center justify-between mb-4">
             <h2 className="text-xl font-display font-bold text-jengibre-dark flex items-center gap-2"><ShieldCheck className="text-jengibre-green" /> Excedentes y Retiros</h2>
+            <button onClick={() => setIsConfigOpen(true)} className="p-2 text-gray-400 hover:text-jengibre-primary hover:bg-jengibre-cream rounded-full transition-colors"><Settings size={20} /></button>
           </div>
-          <div className="bg-gray-50 p-4 rounded-xl border border-gray-200 mb-6">
-            <div className="flex justify-between items-end mb-2">
+          
+          <div className="bg-gray-50 p-5 rounded-xl border border-gray-200 mb-6">
+            <div className="flex justify-between items-start mb-4">
               <div>
-                <p className="text-xs font-bold text-gray-500 uppercase">Costo Mensual Total</p>
-                <p className="text-xl font-mono font-bold">{formatARS(avgCostos + costoDireccion)}</p>
+                <p className="text-[10px] font-bold text-gray-400 uppercase tracking-widest mb-1">Costo Estructural Mensual</p>
+                <p className="text-2xl font-mono font-bold text-gray-900">{formatARS(costoMensualReserva)}</p>
+                <div className="mt-2 space-y-1">
+                  <p className="text-[10px] text-gray-500 flex items-center gap-1"><div className="w-1.5 h-1.5 rounded-full bg-blue-400"></div> Mantenimiento: {formatARS(gastosFijos)}</p>
+                  <p className="text-[10px] text-gray-500 flex items-center gap-1"><div className="w-1.5 h-1.5 rounded-full bg-purple-400"></div> Sueldo Directora: {formatARS(costoDireccion)}</p>
+                  <p className="text-[10px] text-gray-500 flex items-center gap-1"><div className="w-1.5 h-1.5 rounded-full bg-amber-400"></div> Extra Seguridad: {formatARS(extraReserva)}</p>
+                </div>
               </div>
               <div className="text-right">
-                <p className="text-xs font-bold text-jengibre-primary uppercase">Meta Reserva (6 meses)</p>
-                <p className="text-xl font-mono font-bold text-jengibre-primary">{formatARS(fondoReservaObjetivo)}</p>
+                <p className="text-[10px] font-bold text-jengibre-primary uppercase tracking-widest mb-1">Meta Reserva (6 meses)</p>
+                <p className="text-2xl font-mono font-bold text-jengibre-primary">{formatARS(fondoReservaObjetivo)}</p>
               </div>
             </div>
             <div className="h-3 w-full bg-gray-200 rounded-full mt-4 overflow-hidden">
               <div className="h-full bg-jengibre-green transition-all duration-1000" style={{ width: `${porcentajeFondo}%` }}></div>
             </div>
+            <p className="text-[10px] text-center text-gray-400 mt-2 font-bold uppercase tracking-widest">Progreso: {porcentajeFondo.toFixed(1)}%</p>
           </div>
+
           <div className="grid grid-cols-2 gap-4">
             <div className="p-4 rounded-xl border border-indigo-100 bg-indigo-50/30">
               <p className="text-xs font-bold text-indigo-600 uppercase mb-1">Excedente Libre</p>
@@ -336,7 +386,7 @@ export default function SaludFinanciera() {
             </div>
             <div className="p-4 rounded-xl border border-gray-100 bg-gray-50">
               <p className="text-xs font-bold text-gray-500 uppercase mb-1">Meses Cubiertos</p>
-              <p className="text-2xl font-mono font-bold text-gray-700">{(totalCajaARS / (avgCostos + costoDireccion || 1)).toFixed(1)}</p>
+              <p className="text-2xl font-mono font-bold text-gray-700">{(totalCajaARS / (costoMensualReserva || 1)).toFixed(1)}</p>
             </div>
           </div>
         </section>
@@ -376,13 +426,7 @@ export default function SaludFinanciera() {
                 <tr key={c.nombre} className="border-b border-gray-100">
                   <td className="p-2 border-r border-gray-300 sticky left-0 bg-white z-10 font-bold">{c.nombre}</td>
                   {c.data.map((v: number, i: number) => (
-                    <td 
-                      key={i} 
-                      onClick={() => v > 0 && setSelectedDetail({ categoria: c.nombre, mes: mesesNames[i], movimientos: c.details[i] })}
-                      className={`p-2 border-r border-gray-300 text-right font-mono text-blue-800 ${v > 0 ? 'cursor-pointer hover:bg-blue-50 transition-colors' : ''}`}
-                    >
-                      {v > 0 ? formatARS(v) : '-'}
-                    </td>
+                    <td key={i} onClick={() => v > 0 && setSelectedDetail({ categoria: c.nombre, mes: mesesNames[i], movimientos: c.details[i] })} className={`p-2 border-r border-gray-300 text-right font-mono text-blue-800 ${v > 0 ? 'cursor-pointer hover:bg-blue-50 transition-colors' : ''}`}>{v > 0 ? formatARS(v) : '-'}</td>
                   ))}
                   <td className="p-2 text-right font-mono font-bold bg-gray-50">{formatARS(c.data.reduce((a: number, b: number) => a + b, 0))}</td>
                 </tr>
@@ -397,13 +441,7 @@ export default function SaludFinanciera() {
                 <tr key={c.nombre} className="border-b border-gray-100">
                   <td className="p-2 border-r border-gray-300 sticky left-0 bg-white z-10 font-bold">{c.nombre}</td>
                   {c.data.map((v: number, i: number) => (
-                    <td 
-                      key={i} 
-                      onClick={() => v > 0 && setSelectedDetail({ categoria: c.nombre, mes: mesesNames[i], movimientos: c.details[i] })}
-                      className={`p-2 border-r border-gray-300 text-right font-mono text-red-700 ${v > 0 ? 'cursor-pointer hover:bg-red-50 transition-colors' : ''}`}
-                    >
-                      {v > 0 ? formatARS(v) : '-'}
-                    </td>
+                    <td key={i} onClick={() => v > 0 && setSelectedDetail({ categoria: c.nombre, mes: mesesNames[i], movimientos: c.details[i] })} className={`p-2 border-r border-gray-300 text-right font-mono text-red-700 ${v > 0 ? 'cursor-pointer hover:bg-red-50 transition-colors' : ''}`}>{v > 0 ? formatARS(v) : '-'}</td>
                   ))}
                   <td className="p-2 text-right font-mono font-bold bg-gray-50">{formatARS(c.data.reduce((a: number, b: number) => a + b, 0))}</td>
                 </tr>
