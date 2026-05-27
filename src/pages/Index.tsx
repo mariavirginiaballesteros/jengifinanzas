@@ -85,17 +85,21 @@ export default function Dashboard() {
     }
   });
 
-  const { data: configDireccion } = useQuery({
-    queryKey: ['configuracion', 'costo_direccion_mensual'],
+  // Traemos todas las configuraciones de costos para la meta del fondo
+  const { data: configRows } = useQuery({
+    queryKey: ['configuracion_dashboard_reserva'],
     queryFn: async () => {
-      const { data } = await supabase.from('configuracion').select('valor').eq('clave', 'costo_direccion_mensual').maybeSingle();
-      return data;
+      const { data } = await supabase.from('configuracion').select('*').in('clave', [
+        'costo_direccion_mensual', 
+        'gastos_fijos_estimados',
+        'extra_reserva_mensual'
+      ]);
+      return data || [];
     }
   });
-  const costoDireccion = Number(configDireccion?.valor || 0);
 
   const stats = useMemo(() => {
-    if (!movimientos || !clientes) return null;
+    if (!movimientos || !clientes || !configRows) return null;
 
     const saldosCalc: Record<string, number> = {};
     const saldosIniciales = configSaldos || {};
@@ -108,7 +112,6 @@ export default function Dashboard() {
     let costosMes = 0;
     let ingresosYTD = 0;
     let costosYTD = 0;
-    const egresosPorMes: Record<string, number> = {};
 
     const now = new Date();
     const currentMonthPrefix = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
@@ -138,11 +141,6 @@ export default function Dashboard() {
           if (m.tipo === 'ingreso') ingresosYTD += valorEnPesos;
           else costosYTD += valorEnPesos;
         }
-        if (m.tipo === 'egreso') {
-          const mes = m.fecha.substring(0, 7);
-          if (!egresosPorMes[mes]) egresosPorMes[mes] = 0;
-          egresosPorMes[mes] += valorEnPesos;
-        }
       }
     });
 
@@ -150,11 +148,14 @@ export default function Dashboard() {
     const gananciaYTD = ingresosYTD - costosYTD;
     const resultadoMes = ingresosMes - costosMes;
 
-    const mesesCount = Object.keys(egresosPorMes).length;
-    const totalEgresosHist = Object.values(egresosPorMes).reduce((a,b)=>a+b, 0);
-    const avgCostos = mesesCount > 0 ? totalEgresosHist / mesesCount : 0;
-    const metaFondo = (avgCostos + costoDireccion) * 6;
-    const fondoInmovilizado = Math.max(0, Math.min(totalCajaARS, metaFondo));
+    // Lógica de Fondo de Emergencia sincronizada con Salud Financiera
+    const costoDireccion = Number(configRows.find(r => r.clave === 'costo_direccion_mensual')?.valor || 0);
+    const gastosFijos = Number(configRows.find(r => r.clave === 'gastos_fijos_estimados')?.valor || 0);
+    const extraReserva = Number(configRows.find(r => r.clave === 'extra_reserva_mensual')?.valor || 0);
+    
+    const costoMensualReserva = gastosFijos + costoDireccion + extraReserva;
+    const metaFondo = costoMensualReserva * 6;
+    const fondoActual = Math.max(0, Math.min(totalCajaARS, metaFondo));
 
     let mrrTotal = 0;
     let maxAbono = 0;
@@ -181,11 +182,11 @@ export default function Dashboard() {
       arr,
       ticketPromedio,
       ytd: { ingresos: ingresosYTD, costos: costosYTD, ganancia: gananciaYTD },
-      fondo: { actual: fondoInmovilizado, meta: metaFondo },
+      fondo: { actual: totalCajaARS, meta: metaFondo }, // Mostramos el total real contra la meta
       mesActual: { ingresos: ingresosMes, costos: costosMes, resultado: resultadoMes },
-      kpis: { ratioEquipo: 0, margenNeto: ingresosMes > 0 ? (resultadoMes/ingresosMes)*100 : 0, concentracion, minDias, fondoRatio: metaFondo > 0 ? (fondoInmovilizado/metaFondo)*100 : 0 }
+      kpis: { ratioEquipo: 0, margenNeto: ingresosMes > 0 ? (resultadoMes/ingresosMes)*100 : 0, concentracion, minDias, fondoRatio: metaFondo > 0 ? (totalCajaARS/metaFondo)*100 : 0 }
     };
-  }, [movimientos, configSaldos, clientes, cotizacion, costoDireccion]);
+  }, [movimientos, configSaldos, clientes, cotizacion, configRows]);
 
   if (!stats) return <div className="p-12 text-center">Cargando dashboard...</div>;
 
