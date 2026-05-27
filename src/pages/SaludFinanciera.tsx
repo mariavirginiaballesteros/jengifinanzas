@@ -5,7 +5,7 @@ import { formatARS, formatUSD } from '@/lib/utils';
 import { TipAlert } from '@/components/TipAlert';
 import { 
   ChevronLeft, ChevronRight, Bot, Sparkles, 
-  ShieldCheck, Lightbulb, Send, Loader2, Landmark, X, FileText, Calendar, Settings, Info
+  ShieldCheck, Lightbulb, Send, Loader2, Landmark, X, FileText, Calendar, Settings, Info, Wallet
 } from 'lucide-react';
 import { useCotizacionOficial } from '@/hooks/useCotizacion';
 import { showError, showSuccess } from '@/utils/toast';
@@ -34,14 +34,12 @@ export default function SaludFinanciera() {
   const [isChatLoading, setIsChatLoading] = useState(false);
   const [isConfigOpen, setIsConfigOpen] = useState(false);
 
-  // Estado para el panel de detalles
   const [selectedDetail, setSelectedDetail] = useState<{
     categoria: string,
     mes: string,
     movimientos: any[]
   } | null>(null);
 
-  // Queries necesarias
   const { data: movimientos, isLoading: isLoadingMov } = useQuery({
     queryKey: ['movimientos'],
     queryFn: async () => {
@@ -386,16 +384,37 @@ export default function SaludFinanciera() {
       <section className="mb-8">
         <h2 className="text-sm font-bold uppercase tracking-widest text-gray-500 mb-3 flex items-center gap-2"><Landmark size={16} /> Saldos Reales por Cuenta</h2>
         <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-6 gap-3">
-          {Object.entries(saldos).map(([cuenta, montos]: [string, any]) => (
-            <div key={cuenta} className="p-4 rounded-xl border bg-white border-jengibre-border shadow-sm">
-              <span className="text-[10px] font-bold uppercase text-gray-400 block mb-1">{cuenta}</span>
-              <p className="text-lg font-mono font-bold text-gray-900">{formatARS(montos.ars)}</p>
-              {montos.usd !== 0 && <p className="text-sm font-mono font-bold text-emerald-600">{formatUSD(montos.usd)}</p>}
+          {Object.entries(saldos).map(([cuenta, montos]: [string, any]) => {
+            // Lógica para decidir qué moneda mostrar como principal
+            const isUSDAccount = cuenta.toUpperCase().includes('USD') || (montos.usd !== 0 && montos.ars === 0);
+            const primaryAmount = isUSDAccount ? formatUSD(montos.usd) : formatARS(montos.ars);
+            const secondaryAmount = isUSDAccount ? formatARS(montos.usd * cotizacion) : (montos.usd !== 0 ? formatUSD(montos.usd) : null);
+
+            return (
+              <div key={cuenta} className="p-4 rounded-2xl border bg-white border-jengibre-border shadow-sm hover:shadow-md transition-all group">
+                <div className="flex items-center gap-2 mb-2">
+                  <div className="p-1.5 rounded-lg bg-gray-50 text-gray-400 group-hover:text-jengibre-primary transition-colors">
+                    <Wallet size={14} />
+                  </div>
+                  <span className="text-[10px] font-bold uppercase text-gray-500 truncate">{cuenta}</span>
+                </div>
+                <p className="text-xl font-mono font-bold text-gray-900 leading-tight">{primaryAmount}</p>
+                {secondaryAmount && (
+                  <p className="text-[10px] font-medium text-gray-400 mt-1">
+                    {isUSDAccount ? 'Eq. ' : ''}{secondaryAmount}
+                  </p>
+                )}
+              </div>
+            );
+          })}
+          
+          <div className="p-4 rounded-2xl border border-jengibre-primary bg-jengibre-primary text-white shadow-lg transform hover:scale-[1.02] transition-all">
+            <div className="flex items-center gap-2 mb-2">
+              <Landmark size={14} className="opacity-80" />
+              <span className="text-[10px] font-bold uppercase opacity-80">Total Agencia (Eq. ARS)</span>
             </div>
-          ))}
-          <div className="p-4 rounded-xl border border-jengibre-primary bg-jengibre-primary text-white shadow-sm">
-            <span className="text-[10px] font-bold uppercase opacity-80 block mb-1">Total Agencia (Eq. ARS)</span>
-            <p className="text-lg font-mono font-bold">{formatARS(totalCajaARS)}</p>
+            <p className="text-xl font-mono font-bold">{formatARS(totalCajaARS)}</p>
+            <p className="text-[10px] opacity-60 mt-1">Consolidado total</p>
           </div>
         </div>
       </section>
