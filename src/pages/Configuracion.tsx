@@ -1,11 +1,11 @@
 import React, { useState, useEffect } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { supabase } from '@/integrations/supabase/client';
-import { Plus, Trash2, Wallet, Settings, Lock, KeyRound, Landmark } from 'lucide-react';
+import { Plus, Trash2, Wallet, Settings, Lock, KeyRound, Landmark, Edit2, Check, X } from 'lucide-react';
 import { showSuccess, showError } from '@/utils/toast';
 import { formatARS } from '@/lib/utils';
 
-const DEFAULT_CUENTAS = ['Macro', 'IVA', 'MP Mauro', 'MP Fondo', 'Efectivo'];
+const DEFAULT_CUENTAS = ['Macro', 'IVA', 'MP Mauro', 'MP Fondo', 'USD'];
 
 export default function Configuracion() {
   const queryClient = useQueryClient();
@@ -13,6 +13,10 @@ export default function Configuracion() {
   const [newCuenta, setNewCuenta] = useState('');
   const [cuentas, setCuentas] = useState<string[]>([]);
   const [saldosIniciales, setSaldosIniciales] = useState<Record<string, number>>({});
+  
+  // Estado para edición de nombre
+  const [editingIndex, setEditingIndex] = useState<number | null>(null);
+  const [editingValue, setEditingValue] = useState('');
 
   const [newPassword, setNewPassword] = useState('');
   const [isUpdatingPassword, setIsUpdatingPassword] = useState(false);
@@ -39,7 +43,15 @@ export default function Configuracion() {
 
   useEffect(() => {
     if (configCuentas?.valor) {
-      try { setCuentas(JSON.parse(configCuentas.valor)); } catch { setCuentas(DEFAULT_CUENTAS); }
+      try { 
+        let list = JSON.parse(configCuentas.valor);
+        // Aplicar el cambio solicitado: Efectivo -> USD
+        if (list.includes('Efectivo')) {
+          list = list.map((c: string) => c === 'Efectivo' ? 'USD' : c);
+          saveConfigMutation.mutate({ clave: 'cuentas_caja', valor: list, desc: 'Lista de cuentas' });
+        }
+        setCuentas(list); 
+      } catch { setCuentas(DEFAULT_CUENTAS); }
     } else if (!loadingCuentas) {
       setCuentas(DEFAULT_CUENTAS);
     }
@@ -47,7 +59,16 @@ export default function Configuracion() {
 
   useEffect(() => {
     if (configSaldos?.valor) {
-      try { setSaldosIniciales(JSON.parse(configSaldos.valor)); } catch { setSaldosIniciales({}); }
+      try { 
+        let saldos = JSON.parse(configSaldos.valor);
+        // Migrar saldo de Efectivo a USD si existe
+        if (saldos['Efectivo'] !== undefined) {
+          saldos['USD'] = saldos['Efectivo'];
+          delete saldos['Efectivo'];
+          saveConfigMutation.mutate({ clave: 'saldos_iniciales', valor: saldos, desc: 'Saldos de apertura' });
+        }
+        setSaldosIniciales(saldos); 
+      } catch { setSaldosIniciales({}); }
     }
   }, [configSaldos]);
 
@@ -67,7 +88,6 @@ export default function Configuracion() {
     onSuccess: (_, variables) => {
       queryClient.invalidateQueries({ queryKey: ['configuracion', variables.clave] });
       queryClient.invalidateQueries({ queryKey: ['movimientos'] });
-      showSuccess('Configuración guardada');
     },
     onError: (err: any) => showError(err.message)
   });
@@ -79,6 +99,41 @@ export default function Configuracion() {
     setCuentas(updated);
     saveConfigMutation.mutate({ clave: 'cuentas_caja', valor: updated, desc: 'Lista de cuentas' });
     setNewCuenta('');
+    showSuccess('Cuenta añadida');
+  };
+
+  const handleRenameCuenta = (index: number) => {
+    const oldName = cuentas[index];
+    const newName = editingValue.trim();
+    
+    if (!newName || oldName === newName) {
+      setEditingIndex(null);
+      return;
+    }
+
+    if (cuentas.includes(newName)) {
+      showError('Ya existe una cuenta con ese nombre');
+      return;
+    }
+
+    const updatedCuentas = [...cuentas];
+    updatedCuentas[index] = newName;
+    
+    // Actualizar lista de cuentas
+    setCuentas(updatedCuentas);
+    saveConfigMutation.mutate({ clave: 'cuentas_caja', valor: updatedCuentas, desc: 'Lista de cuentas' });
+
+    // Actualizar saldos iniciales para mantener el valor
+    const updatedSaldos = { ...saldosIniciales };
+    if (updatedSaldos[oldName] !== undefined) {
+      updatedSaldos[newName] = updatedSaldos[oldName];
+      delete updatedSaldos[oldName];
+      setSaldosIniciales(updatedSaldos);
+      saveConfigMutation.mutate({ clave: 'saldos_iniciales', valor: updatedSaldos, desc: 'Saldos de apertura' });
+    }
+
+    setEditingIndex(null);
+    showSuccess('Cuenta renombrada');
   };
 
   const handleUpdateSaldo = (cuenta: string, valor: string) => {
@@ -88,6 +143,7 @@ export default function Configuracion() {
 
   const saveSaldos = () => {
     saveConfigMutation.mutate({ clave: 'saldos_iniciales', valor: saldosIniciales, desc: 'Saldos de apertura de cada cuenta' });
+    showSuccess('Saldos iniciales guardados');
   };
 
   const handleUpdatePassword = async (e: React.FormEvent) => {
@@ -146,15 +202,44 @@ export default function Configuracion() {
           <h2 className="text-xl font-display font-bold text-gray-800">Cuentas y Billeteras</h2>
         </div>
         <div className="space-y-6">
-          <ul className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-            {cuentas.map(cuenta => (
+          <ul className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            {cuentas.map((cuenta, index) => (
               <li key={cuenta} className="flex items-center justify-between bg-gray-50 border border-gray-200 rounded-lg p-3 group">
-                <span className="font-medium text-gray-800">{cuenta}</span>
-                <button onClick={() => {
-                  const updated = cuentas.filter(c => c !== cuenta);
-                  setCuentas(updated);
-                  saveConfigMutation.mutate({ clave: 'cuentas_caja', valor: updated, desc: 'Lista de cuentas' });
-                }} className="text-gray-400 hover:text-red-500 opacity-0 group-hover:opacity-100"><Trash2 size={16} /></button>
+                {editingIndex === index ? (
+                  <div className="flex items-center gap-2 w-full">
+                    <input 
+                      autoFocus
+                      className="flex-1 border border-jengibre-primary rounded px-2 py-1 text-sm outline-none"
+                      value={editingValue}
+                      onChange={(e) => setEditingValue(e.target.value)}
+                      onKeyDown={(e) => e.key === 'Enter' && handleRenameCuenta(index)}
+                    />
+                    <button onClick={() => handleRenameCuenta(index)} className="text-green-600 p-1 hover:bg-green-50 rounded"><Check size={16}/></button>
+                    <button onClick={() => setEditingIndex(null)} className="text-red-600 p-1 hover:bg-red-50 rounded"><X size={16}/></button>
+                  </div>
+                ) : (
+                  <>
+                    <span className="font-medium text-gray-800">{cuenta}</span>
+                    <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                      <button 
+                        onClick={() => { setEditingIndex(index); setEditingValue(cuenta); }} 
+                        className="p-1.5 text-gray-400 hover:text-blue-600 hover:bg-blue-50 rounded"
+                      >
+                        <Edit2 size={14} />
+                      </button>
+                      <button 
+                        onClick={() => {
+                          const updated = cuentas.filter(c => c !== cuenta);
+                          setCuentas(updated);
+                          saveConfigMutation.mutate({ clave: 'cuentas_caja', valor: updated, desc: 'Lista de cuentas' });
+                        }} 
+                        className="p-1.5 text-gray-400 hover:text-red-500 hover:bg-red-50 rounded"
+                      >
+                        <Trash2 size={14} />
+                      </button>
+                    </div>
+                  </>
+                )}
               </li>
             ))}
           </ul>
