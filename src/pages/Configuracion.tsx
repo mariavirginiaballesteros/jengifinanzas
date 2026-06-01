@@ -25,7 +25,7 @@ export default function Configuracion() {
   const { data: configCuentas, isLoading: loadingCuentas } = useQuery({
     queryKey: ['configuracion', 'cuentas_caja'],
     queryFn: async () => {
-      const { data } = await supabase.from('configuracion').select('*').eq('clave', 'cuentas_caja').maybeSingle();
+      const { data, error } = await supabase.from('configuracion').select('*').eq('clave', 'cuentas_caja').maybeSingle();
       if (error && error.code !== 'PGRST116') throw error;
       return data;
     }

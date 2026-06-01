@@ -445,7 +445,7 @@ export default function Proyeccion() {
                           <span className={`font-mono font-bold ${decae ? 'text-red-600' : 'text-gray-700'}`}>
                             {formatARS(stat.ingresos)}
                           </span>
-                          {decae && <TrendingDown size={14} className="inline ml-1 text-red-500" title="Caída de ingresos" />}
+                          {decae && <TrendingDown size={14} className="inline ml-1 text-red-500" />}
                         </td>
                         <td className="px-5 py-4 text-right font-mono text-gray-600">
                           {formatARS(stat.costos)}
