@@ -3,7 +3,7 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { supabase } from '@/integrations/supabase/client';
 import { TipAlert } from '@/components/TipAlert';
 import { Plus, Edit2, Trash2, ArrowUpRight, ArrowDownRight, Wallet, RefreshCw, Tag, Calendar, Search, X, Loader2, ArrowRight } from 'lucide-react';
-import { formatARS, formatUSD, formatLocalDate, parseFinancial, parseNotas } from '@/lib/utils';
+import { formatARS, formatUSD, formatLocalDate, parseFinancial, parseNotas, getLocalDateString } from '@/lib/utils';
 import { showSuccess, showError } from '@/utils/toast';
 
 const CATEGORIAS_INGRESO = ['Abonos Mensuales', 'Recuperos de Gastos', 'Proyectos Especiales', 'Inversión de Socios', 'Otros Ingresos'];
@@ -16,15 +16,15 @@ export default function Caja() {
   const [searchTerm, setSearchTerm] = useState('');
   
   const defaultForm = {
-    fecha: new Date().toISOString().split('T')[0],
+    fecha: getLocalDateString(),
     tipo: 'ingreso',
-    concepto: '', 
+    concepto: '',
     monto: '',
     cuenta: '',
     cuenta_destino: '',
     cliente_id: '',
     tiene_iva: false,
-    notasTexto: '', 
+    notasTexto: '',
     moneda: 'ARS'
   };
   const [formData, setFormData] = useState(defaultForm);

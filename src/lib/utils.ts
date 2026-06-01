@@ -45,6 +45,16 @@ export function formatLocalDate(dateString: string | null | undefined, options: 
 }
 
 /**
+ * Retorna la fecha actual en formato YYYY-MM-DD local.
+ */
+export function getLocalDateString(date: Date = new Date()) {
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, '0');
+  const day = String(date.getDate()).padStart(2, '0');
+  return `${year}-${month}-${day}`;
+}
+
+/**
  * Asegura que un valor sea un número financiero válido con 2 decimales de precisión.
  * Evita errores de punto flotante.
  */

@@ -32,7 +32,7 @@ export default function Cashflow() {
 
   // --- DATA FETCHING ---
   const { data: movimientos } = useQuery({
-    queryKey: ['movimientos_cashflow'],
+    queryKey: ['movimientos'],
     queryFn: async () => {
       const { data, error } = await supabase.from('movimientos').select('*');
       if (error) throw error;

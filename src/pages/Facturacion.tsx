@@ -3,7 +3,7 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { supabase } from '@/integrations/supabase/client';
 import { TipAlert } from '@/components/TipAlert';
 import { Plus, Edit2, Trash2, MessageCircle, Save, ChevronDown, ChevronRight, Building, Send, Link as LinkIcon, DollarSign } from 'lucide-react';
-import { formatARS, parseFinancial, parseDescripcion } from '@/lib/utils';
+import { formatARS, parseFinancial, parseDescripcion, formatLocalDate, getLocalDateString } from '@/lib/utils';
 import { showSuccess, showError } from '@/utils/toast';
 
 export default function Facturacion() {
@@ -15,7 +15,7 @@ export default function Facturacion() {
   // Modal de agregar fila manual
   const [isFormOpen, setIsFormOpen] = useState(false);
   const [manualForm, setManualForm] = useState<any>({
-    cliente_id: '', cuota: '', mes: new Date().toISOString().split('T')[0], 
+    cliente_id: '', cuota: '', mes: '',
     monto_base: '', porcentaje_inflacion: 0, responsable_afip: '', cuit_responsable: '', texto: '', periodo: '', link: '', es_informal: false
   });
 
@@ -285,8 +285,13 @@ export default function Facturacion() {
           <h1 className="text-3xl font-display font-bold text-jengibre-dark">Cronograma de Facturación</h1>
           <p className="text-gray-600 mt-1">Control mensual de emisión de facturas y cobranzas por cliente.</p>
         </div>
-        <button 
-          onClick={() => { setManualForm({...manualForm, mes: new Date().toISOString().split('T')[0]}); setIsFormOpen(true); }}
+        <button
+          onClick={() => {
+            const d = new Date();
+            const mesStr = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-01`;
+            setManualForm({...manualForm, mes: mesStr});
+            setIsFormOpen(true);
+          }}
           className="bg-jengibre-primary hover:bg-[#a64120] text-white px-5 py-2.5 rounded-xl font-medium flex items-center gap-2 shadow-sm"
         >
           <Plus size={20} /> Fila Manual
@@ -516,8 +521,7 @@ export default function Facturacion() {
                       <tbody>
                         {group.items.map((row: any) => {
                           const isEditing = editingId === row.id;
-                          const mesDate = new Date(row.mes + 'T12:00:00Z');
-                          const mesNombre = mesDate.toLocaleDateString('es-AR', { month: 'short', year: 'numeric' });
+                          const mesNombre = formatLocalDate(row.mes, { month: 'short', year: 'numeric' });
                           const descData = parseDescripcion(row.descripcion);
                           const finalMonto = Number(row.monto_final || row.monto_base);
                           

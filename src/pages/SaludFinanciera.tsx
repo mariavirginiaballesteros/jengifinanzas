@@ -1,7 +1,7 @@
 import React, { useMemo, useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { supabase } from '@/integrations/supabase/client';
-import { formatARS, formatUSD, formatLocalDate, parseFinancial, parseNotas } from '@/lib/utils';
+import { formatARS, formatUSD, formatLocalDate, parseFinancial, parseNotas, getLocalDateString } from '@/lib/utils';
 import { TipAlert } from '@/components/TipAlert';
 import {
   ChevronLeft, ChevronRight, Bot, Sparkles,
@@ -100,16 +100,18 @@ export default function SaludFinanciera() {
     onError: (err: any) => showError(err.message)
   });
 
-  const { 
-    saldos, grilla, mesesNames, totalCajaARS, totalARS_puro, totalUSD_puro, 
-    fondoReservaObjetivo, excedente, porcentajeFondo, costoMensualReserva, montoRealHoy
+  const {
+    saldos, grilla, mesesNames, totalCajaARS, totalARS_puro, totalUSD_puro,
+    fondoReservaObjetivo, excedente, porcentajeFondo, costoMensualReserva, montoRealHoy,
+    ingresosPendientes, egresosEquipoPendientes
   } = useMemo(() => {
     const defaultState = { 
       saldos: {}, 
       grilla: { ingresos: {}, egresos: {}, totales: Array(12).fill(0).map(() => ({ ingresos: 0, egresos: 0, neto: 0, margen: 0, saldoCaja: 0 })) }, 
       mesesNames: ['Ene', 'Feb', 'Mar', 'Abr', 'May', 'Jun', 'Jul', 'Ago', 'Sep', 'Oct', 'Nov', 'Dic'], 
       totalCajaARS: 0, totalARS_puro: 0, totalUSD_puro: 0, 
-      fondoReservaObjetivo: 0, excedente: 0, porcentajeFondo: 0, costoMensualReserva: 0, montoRealHoy: 0
+      fondoReservaObjetivo: 0, excedente: 0, porcentajeFondo: 0, costoMensualReserva: 0, montoRealHoy: 0,
+      ingresosPendientes: 0, egresosEquipoPendientes: 0
     };
 
     if (!movimientos || !facturas || !equipo || !clientes) return defaultState;
@@ -198,14 +200,20 @@ export default function SaludFinanciera() {
       t.saldoCaja = acumulado;
     });
 
-    const hoy = new Date();
-    const mesActualKey = `${hoy.getFullYear()}-${String(hoy.getMonth() + 1).padStart(2, '0')}`;
+    const mesActualKey = getLocalDateString().substring(0, 7);
     
-    const ingresosPendientesMes = facturas
-      .filter(f => f.mes?.startsWith(mesActualKey) && f.estado !== 'pagado')
-      .reduce((acc, f) => parseFinancial(acc + Number(f.monto_final || f.monto_base || 0)), 0);
+    // 1. Facturas pendientes: Todas las que no están pagadas (incluye meses anteriores)
+    const ingresosPendientes = facturas
+      .filter(f => f.estado !== 'pagado')
+      .reduce((acc, f) => {
+        const desc = parseDescripcion(f.descripcion);
+        const final = Number(f.monto_final || f.monto_base || 0);
+        const cobrado = desc.monto_pagado + desc.retencion_ganancias + desc.retencion_iva + desc.monto_retenido;
+        return parseFinancial(acc + (final - cobrado));
+      }, 0);
 
-    const egresosEquipoMes = equipo.reduce((acc, e) => {
+    // 2. Egresos equipo pendientes: Total del mes actual menos lo ya pagado en movimientos
+    const totalEquipoMes = equipo.reduce((acc, e) => {
       const notas = parseNotas(e.notas);
       let totalMiembro = parseFinancial(e.honorario_mensual || 0);
       Object.entries(notas.asignaciones).forEach(([cId, monto]) => {
@@ -214,25 +222,38 @@ export default function SaludFinanciera() {
       return parseFinancial(acc + totalMiembro);
     }, 0);
 
-    const montoRealHoy = parseFinancial(totalCajaARS + ingresosPendientesMes - egresosEquipoMes);
+    const pagadoEquipoMes = movimientos
+      .filter(m =>
+        m.tipo === 'egreso' &&
+        m.concepto === 'Honorarios Equipo' &&
+        m.fecha?.startsWith(mesActualKey)
+      )
+      .reduce((acc, m) => parseFinancial(acc + Number(m.monto)), 0);
+
+    const egresosEquipoPendientes = Math.max(0, parseFinancial(totalEquipoMes - pagadoEquipoMes));
+
+    // 3. Monto Real Hoy
+    const montoRealHoy = parseFinancial(totalCajaARS + ingresosPendientes - egresosEquipoPendientes);
 
     const costoMensualReserva = parseFinancial(gastosFijos + costoDireccion + extraReserva);
     const fondoReservaObjetivo = parseFinancial(costoMensualReserva * 6);
     const excedente = Math.max(0, parseFinancial(montoRealHoy - fondoReservaObjetivo));
     const porcentajeFondo = Math.max(0, Math.min(100, (montoRealHoy / (fondoReservaObjetivo || 1)) * 100));
 
-    return { 
-      saldos: saldosCalc, 
-      mesesNames: defaultState.mesesNames, 
-      totalCajaARS, 
-      totalARS_puro, 
-      totalUSD_puro, 
-      fondoReservaObjetivo, 
-      excedente, 
-      porcentajeFondo, 
+    return {
+      saldos: saldosCalc,
+      mesesNames: defaultState.mesesNames,
+      totalCajaARS,
+      totalARS_puro,
+      totalUSD_puro,
+      fondoReservaObjetivo,
+      excedente,
+      porcentajeFondo,
       costoMensualReserva,
       montoRealHoy,
-      grilla: { ingresos: ingresosPorCategoria, egresos: egresosPorCategoria, totales: totalesMes } 
+      ingresosPendientes,
+      egresosEquipoPendientes,
+      grilla: { ingresos: ingresosPorCategoria, egresos: egresosPorCategoria, totales: totalesMes }
     };
   }, [movimientos, facturas, equipo, clientes, configSaldos, yearSelected, cotizacion, costoDireccion, gastosFijos, extraReserva]);
 
@@ -419,10 +440,23 @@ export default function SaludFinanciera() {
             <div className="flex justify-between items-start mb-4">
               <div>
                 <p className="text-[10px] font-bold text-gray-400 uppercase tracking-widest mb-1">Monto Real Proyectado (Hoy)</p>
-                <p className="text-2xl font-mono font-bold text-gray-900">{formatARS(montoRealHoy)}</p>
+                <div className="flex items-center gap-2">
+                  <p className="text-2xl font-mono font-bold text-gray-900">{formatARS(montoRealHoy)}</p>
+                  <div className="group relative">
+                    <Info size={14} className="text-gray-400 cursor-help" />
+                    <div className="absolute left-0 bottom-full mb-2 w-64 p-3 bg-gray-900 text-white text-[10px] rounded-lg opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none z-50 shadow-xl">
+                      <p className="font-bold mb-1 border-b border-white/20 pb-1">Cálculo de Disponibilidad:</p>
+                      <div className="space-y-1">
+                        <div className="flex justify-between"><span>Saldo en Cuentas:</span> <span className="font-mono">{formatARS(totalCajaARS)}</span></div>
+                        <div className="flex justify-between text-green-400"><span>(+) Facturas por Cobrar:</span> <span className="font-mono">{formatARS(ingresosPendientes)}</span></div>
+                        <div className="flex justify-between text-red-400"><span>(-) Honorarios Pendientes:</span> <span className="font-mono">{formatARS(egresosEquipoPendientes)}</span></div>
+                      </div>
+                    </div>
+                  </div>
+                </div>
                 <div className="mt-2 space-y-1">
                   <p className="text-[10px] text-gray-500 flex items-center gap-1">
-                    <div className="w-1.5 h-1.5 rounded-full bg-blue-400"></div> 
+                    <div className="w-1.5 h-1.5 rounded-full bg-blue-400"></div>
                     Costo Estructural: <span className="font-bold">{formatARS(costoMensualReserva)}</span>
                   </p>
                   <p className="text-[9px] text-gray-400 ml-3 italic">
