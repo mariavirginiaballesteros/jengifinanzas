@@ -33,11 +33,11 @@ export default function Caja() {
     queryKey: ['configuracion', 'cuentas_caja'],
     queryFn: async () => {
       const { data } = await supabase.from('configuracion').select('valor').eq('clave', 'cuentas_caja').maybeSingle();
-      return data?.valor ? JSON.parse(data.valor) : ['Macro', 'IVA', 'MP Mauro', 'MP Fondo', 'Dolares'];
+      return data?.valor ? JSON.parse(data.valor) : ['MP Vir', 'IVA', 'MP Mauro', 'MP Fondo', 'USD'];
     }
   });
 
-  const cuentasList: string[] = cuentasConfig || ['Macro', 'IVA', 'MP Mauro', 'MP Fondo', 'Dolares'];
+  const cuentasList: string[] = cuentasConfig || ['MP Vir', 'IVA', 'MP Mauro', 'MP Fondo', 'USD'];
 
   const { data: movimientos, isLoading } = useQuery({
     queryKey: ['movimientos'],

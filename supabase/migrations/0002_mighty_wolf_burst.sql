@@ -1,0 +1,1 @@
+UPDATE movimientos SET cuenta_destino = 'MP Vir' WHERE cuenta_destino = 'Macro';

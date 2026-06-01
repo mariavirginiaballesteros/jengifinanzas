@@ -1,0 +1,1 @@
+UPDATE movimientos SET cuenta_destino = 'USD' WHERE cuenta_destino = 'Dolares' OR cuenta_destino = 'Efectivo';

@@ -5,7 +5,7 @@ import { Plus, Trash2, Wallet, Settings, Lock, KeyRound, Landmark, Edit2, Check,
 import { showSuccess, showError } from '@/utils/toast';
 import { formatARS } from '@/lib/utils';
 
-const DEFAULT_CUENTAS = ['Macro', 'IVA', 'MP Mauro', 'MP Fondo', 'Dolares'];
+const DEFAULT_CUENTAS = ['MP Vir', 'IVA', 'MP Mauro', 'MP Fondo', 'USD'];
 
 export default function Configuracion() {
   const queryClient = useQueryClient();
@@ -42,14 +42,9 @@ export default function Configuracion() {
 
   useEffect(() => {
     if (configCuentas?.valor) {
-      try { 
+      try {
         let list = JSON.parse(configCuentas.valor);
-        // Migración: Efectivo o USD -> Dolares
-        if (list.includes('Efectivo') || list.includes('USD')) {
-          list = list.map((c: string) => (c === 'Efectivo' || c === 'USD') ? 'Dolares' : c);
-          saveConfigMutation.mutate({ clave: 'cuentas_caja', valor: list, desc: 'Lista de cuentas' });
-        }
-        setCuentas(list); 
+        setCuentas(list);
       } catch { setCuentas(DEFAULT_CUENTAS); }
     } else if (!loadingCuentas) {
       setCuentas(DEFAULT_CUENTAS);
@@ -58,17 +53,9 @@ export default function Configuracion() {
 
   useEffect(() => {
     if (configSaldos?.valor) {
-      try { 
+      try {
         let saldos = JSON.parse(configSaldos.valor);
-        // Migrar saldo de Efectivo o USD a Dolares si existe
-        if (saldos['Efectivo'] !== undefined || saldos['USD'] !== undefined) {
-          const val = saldos['Efectivo'] || saldos['USD'] || 0;
-          saldos['Dolares'] = val;
-          delete saldos['Efectivo'];
-          delete saldos['USD'];
-          saveConfigMutation.mutate({ clave: 'saldos_iniciales', valor: saldos, desc: 'Saldos de apertura' });
-        }
-        setSaldosIniciales(saldos); 
+        setSaldosIniciales(saldos);
       } catch { setSaldosIniciales({}); }
     }
   }, [configSaldos]);
@@ -122,6 +109,13 @@ export default function Configuracion() {
     
     setCuentas(updatedCuentas);
     saveConfigMutation.mutate({ clave: 'cuentas_caja', valor: updatedCuentas, desc: 'Lista de cuentas' });
+
+    // Actualizar movimientos en la base de datos para mantener consistencia
+    const updateMovimientos = async () => {
+      await supabase.from('movimientos').update({ cuenta: newName }).eq('cuenta', oldName);
+      await supabase.from('movimientos').update({ cuenta_destino: newName }).eq('cuenta_destino', oldName);
+    };
+    updateMovimientos();
 
     const updatedSaldos = { ...saldosIniciales };
     if (updatedSaldos[oldName] !== undefined) {

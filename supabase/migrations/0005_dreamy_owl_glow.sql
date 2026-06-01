@@ -1,0 +1,1 @@
+UPDATE configuracion SET valor = '["MP Vir","IVA","MP Mauro","USD","Mercado Pago - Fondo Emergencia"]' WHERE clave = 'cuentas_caja';

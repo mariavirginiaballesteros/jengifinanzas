@@ -220,7 +220,7 @@ export default function Clientes() {
 
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-1">Información de Seguimiento / Notas Internas</label>
-                  <input className="w-full border border-gray-300 rounded-lg p-2.5 outline-none focus:ring-2 focus:ring-jengibre-primary bg-white" value={formData.notas} onChange={e => setFormData({...formData, notas: e.target.value})} placeholder="Ej: Depositan en cuenta Macro. Enviar factura a RRHH." />
+                  <input className="w-full border border-gray-300 rounded-lg p-2.5 outline-none focus:ring-2 focus:ring-jengibre-primary bg-white" value={formData.notas} onChange={e => setFormData({...formData, notas: e.target.value})} placeholder="Ej: Depositan en cuenta MP Vir. Enviar factura a RRHH." />
                 </div>
               </div>
 

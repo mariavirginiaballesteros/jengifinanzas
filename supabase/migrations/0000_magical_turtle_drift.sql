@@ -1,0 +1,1 @@
+SELECT * FROM configuracion WHERE clave IN ('cuentas_caja', 'saldos_iniciales');

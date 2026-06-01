@@ -1,0 +1,1 @@
+UPDATE movimientos SET cuenta = 'USD' WHERE cuenta = 'Dolares' OR cuenta = 'Efectivo';
