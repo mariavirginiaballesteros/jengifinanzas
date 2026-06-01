@@ -1,0 +1,1 @@
+DELETE FROM movimientos WHERE cuenta = 'MP Mauro' AND notas LIKE '%"moneda":"USD"%';

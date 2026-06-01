@@ -1,0 +1,1 @@
+SELECT id, monto, tipo, notas FROM movimientos WHERE cuenta = 'MP Mauro';

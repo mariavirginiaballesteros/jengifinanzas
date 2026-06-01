@@ -180,7 +180,19 @@ export default function Caja() {
                 </div>
                 <div className="space-y-1.5">
                   <label className="text-[10px] font-bold text-gray-400 uppercase tracking-widest ml-1">{formData.tipo === 'transferencia' ? 'Desde Cuenta' : 'Cuenta'}</label>
-                  <select className="w-full border border-gray-200 rounded-xl p-3 outline-none bg-white focus:ring-2 focus:ring-jengibre-primary/20" value={formData.cuenta} onChange={e => setFormData({...formData, cuenta: e.target.value})} required>
+                  <select
+                    className="w-full border border-gray-200 rounded-xl p-3 outline-none bg-white focus:ring-2 focus:ring-jengibre-primary/20"
+                    value={formData.cuenta}
+                    onChange={e => {
+                      const newCuenta = e.target.value;
+                      const updates: any = { cuenta: newCuenta };
+                      if (newCuenta === 'MP Mauro') {
+                        updates.moneda = 'ARS';
+                      }
+                      setFormData({...formData, ...updates});
+                    }}
+                    required
+                  >
                     <option value="">Seleccioná...</option>
                     {cuentasList.map(c => <option key={c} value={c}>{c}</option>)}
                   </select>
@@ -198,7 +210,20 @@ export default function Caja() {
               ) : (
                 <div className="space-y-1.5">
                   <label className="text-[10px] font-bold text-gray-400 uppercase tracking-widest ml-1">Hacia Cuenta (Destino)</label>
-                  <select className="w-full border border-gray-200 rounded-xl p-3 outline-none bg-white focus:ring-2 focus:ring-jengibre-primary/20" value={formData.cuenta_destino} onChange={e => setFormData({...formData, cuenta_destino: e.target.value})} required>
+                  <select
+                    className="w-full border border-gray-200 rounded-xl p-3 outline-none bg-white focus:ring-2 focus:ring-jengibre-primary/20"
+                    value={formData.cuenta_destino}
+                    onChange={e => {
+                      const newDestino = e.target.value;
+                      const updates: any = { cuenta_destino: newDestino };
+                      // Si es transferencia y el destino es MP Mauro, la moneda debe ser ARS
+                      if (newDestino === 'MP Mauro' || formData.cuenta === 'MP Mauro') {
+                        updates.moneda = 'ARS';
+                      }
+                      setFormData({...formData, ...updates});
+                    }}
+                    required
+                  >
                     <option value="">Seleccioná destino...</option>
                     {cuentasList.map(c => <option key={c} value={c}>{c}</option>)}
                   </select>
@@ -208,7 +233,12 @@ export default function Caja() {
               <div className="grid grid-cols-3 gap-4">
                 <div className="space-y-1.5">
                   <label className="text-[10px] font-bold text-gray-400 uppercase tracking-widest ml-1">Moneda</label>
-                  <select className="w-full border border-gray-200 rounded-xl p-3 outline-none font-bold focus:ring-2 focus:ring-jengibre-primary/20" value={formData.moneda} onChange={e => setFormData({...formData, moneda: e.target.value})}>
+                  <select
+                    className="w-full border border-gray-200 rounded-xl p-3 outline-none font-bold focus:ring-2 focus:ring-jengibre-primary/20 disabled:bg-gray-50 disabled:text-gray-400"
+                    value={formData.moneda}
+                    onChange={e => setFormData({...formData, moneda: e.target.value})}
+                    disabled={formData.cuenta === 'MP Mauro' || (formData.tipo === 'transferencia' && formData.cuenta_destino === 'MP Mauro')}
+                  >
                     <option value="ARS">ARS</option>
                     <option value="USD">USD</option>
                   </select>

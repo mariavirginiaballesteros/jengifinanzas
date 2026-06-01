@@ -133,7 +133,8 @@ export default function SaludFinanciera() {
     movimientos.forEach(m => {
       if (!m.fecha) return;
       const notasParsed = parseNotas(m.notas);
-      const isUSD = notasParsed.moneda === 'USD';
+      // Forzamos ARS para MP Mauro por definición de negocio
+      const isUSD = m.cuenta === 'MP Mauro' ? false : notasParsed.moneda === 'USD';
       const notasTexto = notasParsed.texto;
       
       const montoOriginal = parseFinancial(m.monto) || 0;
