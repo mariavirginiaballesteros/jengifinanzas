@@ -385,10 +385,9 @@ export default function SaludFinanciera() {
         <h2 className="text-sm font-bold uppercase tracking-widest text-gray-500 mb-3 flex items-center gap-2"><Landmark size={16} /> Saldos Reales por Cuenta</h2>
         <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-6 gap-3">
           {Object.entries(saldos).map(([cuenta, montos]: [string, any]) => {
-            // Lógica para decidir qué moneda mostrar como principal
-            const isUSDAccount = cuenta.toUpperCase().includes('USD') || (montos.usd !== 0 && montos.ars === 0);
-            const primaryAmount = isUSDAccount ? formatUSD(montos.usd) : formatARS(montos.ars);
-            const secondaryAmount = isUSDAccount ? formatARS(montos.usd * cotizacion) : (montos.usd !== 0 ? formatUSD(montos.usd) : null);
+            // Calculamos el total consolidado en pesos para esta cuenta específica
+            const totalConsolidadoCuenta = montos.ars + (montos.usd * cotizacion);
+            const hasUSD = montos.usd !== 0;
 
             return (
               <div key={cuenta} className="p-4 rounded-2xl border bg-white border-jengibre-border shadow-sm hover:shadow-md transition-all group">
@@ -398,11 +397,12 @@ export default function SaludFinanciera() {
                   </div>
                   <span className="text-[10px] font-bold uppercase text-gray-500 truncate">{cuenta}</span>
                 </div>
-                <p className="text-xl font-mono font-bold text-gray-900 leading-tight">{primaryAmount}</p>
-                {secondaryAmount && (
-                  <p className="text-[10px] font-medium text-gray-400 mt-1">
-                    {isUSDAccount ? 'Eq. ' : ''}{secondaryAmount}
-                  </p>
+                <p className="text-xl font-mono font-bold text-gray-900 leading-tight">{formatARS(totalConsolidadoCuenta)}</p>
+                {hasUSD && (
+                  <div className="mt-1 space-y-0.5">
+                    <p className="text-[9px] font-bold text-blue-600 uppercase">Incluye: {formatUSD(montos.usd)}</p>
+                    <p className="text-[9px] text-gray-400">Base ARS: {formatARS(montos.ars)}</p>
+                  </div>
                 )}
               </div>
             );
