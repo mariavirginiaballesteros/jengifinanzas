@@ -42,11 +42,11 @@ export default function Caja() {
     queryKey: ['configuracion', 'cuentas_caja'],
     queryFn: async () => {
       const { data } = await supabase.from('configuracion').select('valor').eq('clave', 'cuentas_caja').maybeSingle();
-      return data?.valor ? JSON.parse(data.valor) : ['Macro', 'IVA', 'MP Mauro', 'MP Fondo', 'USD'];
+      return data?.valor ? JSON.parse(data.valor) : ['Macro', 'IVA', 'MP Mauro', 'MP Fondo', 'Dolares'];
     }
   });
 
-  const cuentasList: string[] = cuentasConfig || ['Macro', 'IVA', 'MP Mauro', 'MP Fondo', 'USD'];
+  const cuentasList: string[] = cuentasConfig || ['Macro', 'IVA', 'MP Mauro', 'MP Fondo', 'Dolares'];
 
   const { data: movimientos, isLoading } = useQuery({
     queryKey: ['movimientos'],
@@ -59,7 +59,6 @@ export default function Caja() {
 
   const saveMutation = useMutation({
     mutationFn: async (movData: typeof formData) => {
-      // Validaciones básicas
       if (!movData.monto || Number(movData.monto) <= 0) throw new Error("El monto debe ser mayor a 0");
       if (!movData.cuenta) throw new Error("Debes seleccionar una cuenta");
       

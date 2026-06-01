@@ -14,9 +14,10 @@ export function formatARS(amount: number) {
 }
 
 export function formatUSD(amount: number) {
-  return new Intl.NumberFormat('en-US', {
-    style: 'currency',
-    currency: 'USD',
+  // Usamos el formato solicitado U$
+  const formatted = new Intl.NumberFormat('en-US', {
+    style: 'decimal',
     maximumFractionDigits: 0
   }).format(amount);
+  return `U$ ${formatted}`;
 }

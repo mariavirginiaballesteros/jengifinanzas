@@ -5,7 +5,7 @@ import { Plus, Trash2, Wallet, Settings, Lock, KeyRound, Landmark, Edit2, Check,
 import { showSuccess, showError } from '@/utils/toast';
 import { formatARS } from '@/lib/utils';
 
-const DEFAULT_CUENTAS = ['Macro', 'IVA', 'MP Mauro', 'MP Fondo', 'USD'];
+const DEFAULT_CUENTAS = ['Macro', 'IVA', 'MP Mauro', 'MP Fondo', 'Dolares'];
 
 export default function Configuracion() {
   const queryClient = useQueryClient();
@@ -25,7 +25,7 @@ export default function Configuracion() {
   const { data: configCuentas, isLoading: loadingCuentas } = useQuery({
     queryKey: ['configuracion', 'cuentas_caja'],
     queryFn: async () => {
-      const { data, error } = await supabase.from('configuracion').select('*').eq('clave', 'cuentas_caja').maybeSingle();
+      const { data } = await supabase.from('configuracion').select('*').eq('clave', 'cuentas_caja').maybeSingle();
       if (error && error.code !== 'PGRST116') throw error;
       return data;
     }
@@ -35,8 +35,7 @@ export default function Configuracion() {
   const { data: configSaldos, isLoading: loadingSaldos } = useQuery({
     queryKey: ['configuracion', 'saldos_iniciales'],
     queryFn: async () => {
-      const { data, error } = await supabase.from('configuracion').select('*').eq('clave', 'saldos_iniciales').maybeSingle();
-      if (error && error.code !== 'PGRST116') throw error;
+      const { data } = await supabase.from('configuracion').select('*').eq('clave', 'saldos_iniciales').maybeSingle();
       return data;
     }
   });
@@ -45,9 +44,9 @@ export default function Configuracion() {
     if (configCuentas?.valor) {
       try { 
         let list = JSON.parse(configCuentas.valor);
-        // Aplicar el cambio solicitado: Efectivo -> USD
-        if (list.includes('Efectivo')) {
-          list = list.map((c: string) => c === 'Efectivo' ? 'USD' : c);
+        // Migración: Efectivo o USD -> Dolares
+        if (list.includes('Efectivo') || list.includes('USD')) {
+          list = list.map((c: string) => (c === 'Efectivo' || c === 'USD') ? 'Dolares' : c);
           saveConfigMutation.mutate({ clave: 'cuentas_caja', valor: list, desc: 'Lista de cuentas' });
         }
         setCuentas(list); 
@@ -61,10 +60,12 @@ export default function Configuracion() {
     if (configSaldos?.valor) {
       try { 
         let saldos = JSON.parse(configSaldos.valor);
-        // Migrar saldo de Efectivo a USD si existe
-        if (saldos['Efectivo'] !== undefined) {
-          saldos['USD'] = saldos['Efectivo'];
+        // Migrar saldo de Efectivo o USD a Dolares si existe
+        if (saldos['Efectivo'] !== undefined || saldos['USD'] !== undefined) {
+          const val = saldos['Efectivo'] || saldos['USD'] || 0;
+          saldos['Dolares'] = val;
           delete saldos['Efectivo'];
+          delete saldos['USD'];
           saveConfigMutation.mutate({ clave: 'saldos_iniciales', valor: saldos, desc: 'Saldos de apertura' });
         }
         setSaldosIniciales(saldos); 
@@ -119,11 +120,9 @@ export default function Configuracion() {
     const updatedCuentas = [...cuentas];
     updatedCuentas[index] = newName;
     
-    // Actualizar lista de cuentas
     setCuentas(updatedCuentas);
     saveConfigMutation.mutate({ clave: 'cuentas_caja', valor: updatedCuentas, desc: 'Lista de cuentas' });
 
-    // Actualizar saldos iniciales para mantener el valor
     const updatedSaldos = { ...saldosIniciales };
     if (updatedSaldos[oldName] !== undefined) {
       updatedSaldos[newName] = updatedSaldos[oldName];
@@ -164,7 +163,6 @@ export default function Configuracion() {
         </h1>
       </header>
 
-      {/* SALDOS DE APERTURA */}
       <section className="bg-white border border-jengibre-border rounded-2xl p-6 shadow-sm">
         <div className="flex items-center gap-3 mb-6 border-b border-gray-100 pb-4">
           <div className="bg-jengibre-green/10 p-3 rounded-xl text-jengibre-green"><Landmark size={24} /></div>
@@ -195,7 +193,6 @@ export default function Configuracion() {
         </button>
       </section>
 
-      {/* CUENTAS */}
       <section className="bg-white border border-jengibre-border rounded-2xl p-6 shadow-sm">
         <div className="flex items-center gap-3 mb-6 border-b border-gray-100 pb-4">
           <div className="bg-jengibre-cream p-3 rounded-xl text-jengibre-primary"><Wallet size={24} /></div>
@@ -250,7 +247,6 @@ export default function Configuracion() {
         </div>
       </section>
 
-      {/* SEGURIDAD */}
       <section className="bg-white border border-jengibre-border rounded-2xl p-6 shadow-sm">
         <div className="flex items-center gap-3 mb-6 border-b border-gray-100 pb-4">
           <div className="bg-jengibre-primary/10 p-3 rounded-xl text-jengibre-primary"><Lock size={24} /></div>
