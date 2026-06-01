@@ -2,10 +2,9 @@ import React, { useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { supabase } from '@/integrations/supabase/client';
 import { TipAlert } from '@/components/TipAlert';
-import { Plus, Edit2, Trash2, ArrowUpRight, ArrowDownRight, Wallet, RefreshCw, Tag, Calendar, Search } from 'lucide-react';
+import { Plus, Edit2, Trash2, ArrowUpRight, ArrowDownRight, Wallet, RefreshCw, Tag, Calendar, Search, X, Loader2, ArrowRight } from 'lucide-react';
 import { formatARS, formatUSD } from '@/lib/utils';
 import { showSuccess, showError } from '@/utils/toast';
-import { useCotizacionOficial } from '@/hooks/useCotizacion';
 
 const CATEGORIAS_INGRESO = ['Abonos Mensuales', 'Recuperos de Gastos', 'Proyectos Especiales', 'Inversión de Socios', 'Otros Ingresos'];
 const CATEGORIAS_EGRESO = ['Honorarios Equipo', 'Impuestos (AFIP/IIBB/Ganancias)', 'Software y Herramientas', 'Gastos de Oficina', 'Marketing y Ventas', 'Retiros de Dividendos', 'Otros Gastos'];
@@ -60,11 +59,21 @@ export default function Caja() {
 
   const saveMutation = useMutation({
     mutationFn: async (movData: typeof formData) => {
+      // Validaciones básicas
+      if (!movData.monto || Number(movData.monto) <= 0) throw new Error("El monto debe ser mayor a 0");
+      if (!movData.cuenta) throw new Error("Debes seleccionar una cuenta");
+      
+      const finalConcepto = movData.tipo === 'transferencia' ? 'Transferencia Interna' : movData.concepto;
+      if (!finalConcepto) throw new Error("Debes seleccionar una categoría");
+      
+      if (movData.tipo === 'transferencia' && !movData.cuenta_destino) throw new Error("Debes seleccionar una cuenta de destino");
+      if (movData.tipo === 'transferencia' && movData.cuenta === movData.cuenta_destino) throw new Error("La cuenta de origen y destino no pueden ser la misma");
+
       const jsonNotas = JSON.stringify({ texto: movData.notasTexto, moneda: movData.moneda });
       const payload = { 
         fecha: movData.fecha,
         tipo: movData.tipo,
-        concepto: movData.concepto,
+        concepto: finalConcepto,
         monto: Number(movData.monto),
         cuenta: movData.cuenta,
         cuenta_destino: movData.tipo === 'transferencia' ? movData.cuenta_destino : null,
@@ -83,7 +92,7 @@ export default function Caja() {
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['movimientos'] });
-      showSuccess('Movimiento guardado');
+      showSuccess(editingId ? 'Movimiento actualizado' : 'Movimiento registrado con éxito');
       closeForm();
     },
     onError: (err: any) => showError(err.message)
@@ -111,7 +120,7 @@ export default function Caja() {
     setFormData({
       fecha: mov.fecha,
       tipo: mov.tipo,
-      concepto: mov.concepto,
+      concepto: mov.concepto === 'Transferencia Interna' ? '' : mov.concepto,
       monto: mov.monto.toString(),
       cuenta: mov.cuenta,
       cuenta_destino: mov.cuenta_destino || '',
@@ -229,7 +238,9 @@ export default function Caja() {
 
               <div className="flex justify-end gap-3 mt-10 pt-6 border-t border-gray-100">
                 <button type="button" onClick={closeForm} className="px-6 py-3 text-gray-500 font-bold hover:bg-gray-50 rounded-xl transition-colors">Cancelar</button>
-                <button type="submit" className="bg-jengibre-primary text-white px-8 py-3 rounded-xl font-bold shadow-lg shadow-jengibre-primary/20 active:scale-95 transition-all">Guardar Movimiento</button>
+                <button type="submit" disabled={saveMutation.isPending} className="bg-jengibre-primary text-white px-8 py-3 rounded-xl font-bold shadow-lg shadow-jengibre-primary/20 active:scale-95 transition-all disabled:opacity-50">
+                  {saveMutation.isPending ? 'Guardando...' : 'Guardar Movimiento'}
+                </button>
               </div>
             </form>
           </div>
