@@ -58,7 +58,7 @@ export default function Cashflow() {
   });
 
   const { data: facturas } = useQuery({
-    queryKey: ['facturacion_cashflow'],
+    queryKey: ['facturacion'],
     queryFn: async () => {
       const { data, error } = await supabase.from('facturacion').select('*');
       if (error) throw error;
@@ -67,7 +67,7 @@ export default function Cashflow() {
   });
 
   const { data: equipo } = useQuery({
-    queryKey: ['equipo_cashflow'],
+    queryKey: ['equipo'],
     queryFn: async () => {
       const { data, error } = await supabase.from('equipo').select('*').eq('activo', true);
       if (error) throw error;
@@ -76,7 +76,7 @@ export default function Cashflow() {
   });
 
   const { data: clientes } = useQuery({
-    queryKey: ['clientes_cashflow'],
+    queryKey: ['clientes'],
     queryFn: async () => {
       const { data, error } = await supabase.from('clientes').select('*').eq('estado', 'activo');
       if (error) throw error;

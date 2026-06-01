@@ -2,7 +2,7 @@ import React, { useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { supabase } from '@/integrations/supabase/client';
 import { Plus, Edit2, Trash2, ShoppingCart, Receipt } from 'lucide-react';
-import { formatARS } from '@/lib/utils';
+import { formatARS, getLocalDateString } from '@/lib/utils';
 import { showSuccess, showError } from '@/utils/toast';
 
 export default function Compras() {
@@ -11,7 +11,7 @@ export default function Compras() {
   const [editingId, setEditingId] = useState<string | null>(null);
   
   const defaultForm = {
-    fecha: new Date().toISOString().split('T')[0],
+    fecha: getLocalDateString(),
     proveedor: '',
     concepto: '',
     monto_total: '',

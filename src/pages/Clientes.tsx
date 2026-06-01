@@ -2,7 +2,7 @@ import React, { useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { supabase } from '@/integrations/supabase/client';
 import { Plus, Edit2, Trash2, Building, AlertTriangle, FileText } from 'lucide-react';
-import { formatARS, formatUSD } from '@/lib/utils';
+import { formatARS, formatUSD, getLocalDateString } from '@/lib/utils';
 import { showSuccess, showError } from '@/utils/toast';
 import { Link } from 'react-router-dom';
 
@@ -19,7 +19,7 @@ export default function Clientes() {
     contacto_nombre: '', contacto_email: '', quien_factura: '', datos_facturacion: '', seguimiento_pagos: '', dia_facturacion: '', notas: '',
     
     // Herramienta Generador
-    generar_cronograma: false, cantidad_cuotas: '', cuota_monto: '', cuota_mes_inicio: new Date().toISOString().split('T')[0].slice(0, 7)
+    generar_cronograma: false, cantidad_cuotas: '', cuota_monto: '', cuota_mes_inicio: getLocalDateString().slice(0, 7)
   };
   const [formData, setFormData] = useState<any>(defaultForm);
 

@@ -3,7 +3,7 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { supabase } from '@/integrations/supabase/client';
 import { TipAlert } from '@/components/TipAlert';
 import { Plus, Edit2, Trash2, MessageCircle, FileText, CheckCircle2, Clock } from 'lucide-react';
-import { formatARS } from '@/lib/utils';
+import { formatARS, getLocalDateString } from '@/lib/utils';
 import { showSuccess, showError } from '@/utils/toast';
 
 export default function Contadora() {
@@ -14,7 +14,7 @@ export default function Contadora() {
   const defaultForm = {
     tipo: 'Emisión de Factura',
     cliente_id: '',
-    periodo: new Date().toISOString().slice(0, 7), // YYYY-MM
+    periodo: getLocalDateString().slice(0, 7), // YYYY-MM
     monto_neto: '',
     monto_con_iva: '',
     referencia: '',

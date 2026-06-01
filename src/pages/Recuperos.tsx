@@ -3,7 +3,7 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { supabase } from '@/integrations/supabase/client';
 import { TipAlert } from '@/components/TipAlert';
 import { Plus, Edit2, Trash2, RefreshCw, MessageCircle } from 'lucide-react';
-import { formatARS } from '@/lib/utils';
+import { formatARS, getLocalDateString } from '@/lib/utils';
 import { showSuccess, showError } from '@/utils/toast';
 
 // Helper para guardar datos extra como IIBB en el campo notas
@@ -29,10 +29,10 @@ export default function Recuperos() {
     cliente_id: '',
     concepto: '',
     monto: '',
-    fecha_pago: new Date().toISOString().split('T')[0],
+    fecha_pago: getLocalDateString(),
     tiene_iva: false,
     iibb_porcentaje: 3,
-    estado: 'pendiente', 
+    estado: 'pendiente',
     fecha_cobro: '',
     notas: ''
   };
@@ -81,7 +81,7 @@ export default function Recuperos() {
         tiene_iva: tieneIva,
         iva_monto: ivaMonto,
         estado: payload.estado,
-        fecha_cobro: payload.estado === 'cobrado' && !payload.fecha_cobro ? new Date().toISOString().split('T')[0] : (payload.fecha_cobro || null),
+        fecha_cobro: payload.estado === 'cobrado' && !payload.fecha_cobro ? getLocalDateString() : (payload.fecha_cobro || null),
         notas: notasJson
       };
 
@@ -105,7 +105,7 @@ export default function Recuperos() {
     mutationFn: async ({ id, estado, currentFechaCobro }: { id: string, estado: string, currentFechaCobro: string | null }) => {
       const payload: any = { estado };
       if (estado === 'cobrado' && !currentFechaCobro) {
-        payload.fecha_cobro = new Date().toISOString().split('T')[0];
+        payload.fecha_cobro = getLocalDateString();
       } else if (estado !== 'cobrado') {
         payload.fecha_cobro = null;
       }

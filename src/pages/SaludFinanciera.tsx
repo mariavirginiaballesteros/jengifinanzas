@@ -1,7 +1,7 @@
 import React, { useMemo, useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { supabase } from '@/integrations/supabase/client';
-import { formatARS, formatUSD, formatLocalDate, parseFinancial, parseNotas, getLocalDateString } from '@/lib/utils';
+import { formatARS, formatUSD, formatLocalDate, parseFinancial, parseNotas, getLocalDateString, parseDescripcion } from '@/lib/utils';
 import { TipAlert } from '@/components/TipAlert';
 import {
   ChevronLeft, ChevronRight, Bot, Sparkles,
@@ -37,7 +37,7 @@ export default function SaludFinanciera() {
   });
 
   const { data: facturas } = useQuery({
-    queryKey: ['facturacion_salud'],
+    queryKey: ['facturacion'],
     queryFn: async () => {
       const { data, error } = await supabase.from('facturacion').select('*');
       if (error) throw error;
@@ -46,7 +46,7 @@ export default function SaludFinanciera() {
   });
 
   const { data: equipo } = useQuery({
-    queryKey: ['equipo_salud'],
+    queryKey: ['equipo'],
     queryFn: async () => {
       const { data, error } = await supabase.from('equipo').select('*').eq('activo', true);
       if (error) throw error;
@@ -55,7 +55,7 @@ export default function SaludFinanciera() {
   });
 
   const { data: clientes } = useQuery({
-    queryKey: ['clientes_salud'],
+    queryKey: ['clientes'],
     queryFn: async () => {
       const { data, error } = await supabase.from('clientes').select('id, nombre, estado').eq('estado', 'activo');
       if (error) throw error;
@@ -64,11 +64,11 @@ export default function SaludFinanciera() {
   });
 
   const { data: configRows } = useQuery({
-    queryKey: ['configuracion_salud'],
+    queryKey: ['configuracion'],
     queryFn: async () => {
       const { data } = await supabase.from('configuracion').select('*').in('clave', [
-        'saldos_iniciales', 
-        'costo_direccion_mensual', 
+        'saldos_iniciales',
+        'costo_direccion_mensual',
         'gastos_fijos_estimados',
         'extra_reserva_mensual'
       ]);
@@ -93,7 +93,7 @@ export default function SaludFinanciera() {
       }
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['configuracion_salud'] });
+      queryClient.invalidateQueries({ queryKey: ['configuracion'] });
       showSuccess('Configuración actualizada');
       setIsConfigOpen(false);
     },
