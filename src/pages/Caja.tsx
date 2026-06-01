@@ -3,20 +3,11 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { supabase } from '@/integrations/supabase/client';
 import { TipAlert } from '@/components/TipAlert';
 import { Plus, Edit2, Trash2, ArrowUpRight, ArrowDownRight, Wallet, RefreshCw, Tag, Calendar, Search, X, Loader2, ArrowRight } from 'lucide-react';
-import { formatARS, formatUSD } from '@/lib/utils';
+import { formatARS, formatUSD, formatLocalDate, parseFinancial, parseNotas } from '@/lib/utils';
 import { showSuccess, showError } from '@/utils/toast';
 
 const CATEGORIAS_INGRESO = ['Abonos Mensuales', 'Recuperos de Gastos', 'Proyectos Especiales', 'Inversión de Socios', 'Otros Ingresos'];
 const CATEGORIAS_EGRESO = ['Honorarios Equipo', 'Impuestos (AFIP/IIBB/Ganancias)', 'Software y Herramientas', 'Gastos de Oficina', 'Marketing y Ventas', 'Retiros de Dividendos', 'Otros Gastos'];
-
-const parseNotas = (notasStr: string | null) => {
-  if (!notasStr) return { texto: '', moneda: 'ARS' };
-  try {
-    const parsed = JSON.parse(notasStr);
-    if (parsed && typeof parsed === 'object') return { texto: parsed.texto || '', moneda: parsed.moneda || 'ARS' };
-  } catch(e) {}
-  return { texto: notasStr || '', moneda: 'ARS' };
-};
 
 export default function Caja() {
   const queryClient = useQueryClient();
@@ -59,7 +50,8 @@ export default function Caja() {
 
   const saveMutation = useMutation({
     mutationFn: async (movData: typeof formData) => {
-      if (!movData.monto || Number(movData.monto) <= 0) throw new Error("El monto debe ser mayor a 0");
+      const montoParsed = parseFinancial(movData.monto);
+      if (!movData.monto || montoParsed <= 0) throw new Error("El monto debe ser mayor a 0");
       if (!movData.cuenta) throw new Error("Debes seleccionar una cuenta");
       
       const finalConcepto = movData.tipo === 'transferencia' ? 'Transferencia Interna' : movData.concepto;
@@ -69,11 +61,11 @@ export default function Caja() {
       if (movData.tipo === 'transferencia' && movData.cuenta === movData.cuenta_destino) throw new Error("La cuenta de origen y destino no pueden ser la misma");
 
       const jsonNotas = JSON.stringify({ texto: movData.notasTexto, moneda: movData.moneda });
-      const payload = { 
+      const payload = {
         fecha: movData.fecha,
         tipo: movData.tipo,
         concepto: finalConcepto,
-        monto: Number(movData.monto),
+        monto: montoParsed,
         cuenta: movData.cuenta,
         cuenta_destino: movData.tipo === 'transferencia' ? movData.cuenta_destino : null,
         cliente_id: movData.cliente_id || null,
@@ -269,8 +261,8 @@ export default function Caja() {
                   return (
                     <tr key={mov.id} className="border-b border-gray-50 hover:bg-gray-50/80 transition-colors group">
                       <td className="px-6 py-5">
-                        <p className="text-sm font-bold text-gray-900">{new Date(mov.fecha).toLocaleDateString('es-AR', { day: '2-digit', month: 'short' })}</p>
-                        <p className="text-[10px] text-gray-400 font-medium">{new Date(mov.fecha).getFullYear()}</p>
+                        <p className="text-sm font-bold text-gray-900">{formatLocalDate(mov.fecha, { day: '2-digit', month: 'short' })}</p>
+                        <p className="text-[10px] text-gray-400 font-medium">{mov.fecha ? mov.fecha.substring(0, 4) : '-'}</p>
                       </td>
                       <td className="px-6 py-5">
                         <div className="flex items-center gap-4">

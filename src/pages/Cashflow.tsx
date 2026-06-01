@@ -3,7 +3,7 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { supabase } from '@/integrations/supabase/client';
 import { TipAlert } from '@/components/TipAlert';
 import { Wallet, ArrowUpRight, ArrowDownRight, Landmark, TrendingUp, Calendar, Info, ChevronDown, ChevronRight, Edit3, Save, X, AlertCircle, Sparkles, Target, Plus, Trash2 } from 'lucide-react';
-import { formatARS } from '@/lib/utils';
+import { formatARS, parseFinancial, parseNotas } from '@/lib/utils';
 import { useCotizacionOficial } from '@/hooks/useCotizacion';
 import { showSuccess, showError } from '@/utils/toast';
 
@@ -17,15 +17,6 @@ interface MonthAdjustment {
   incomes: SimItem[];
   expenses: SimItem[];
 }
-
-const parseNotas = (notasStr: string | null) => {
-  if (!notasStr) return { asignaciones: {} as Record<string, number> };
-  try {
-    const parsed = JSON.parse(notasStr);
-    if (parsed && typeof parsed === 'object' && parsed.asignaciones) return parsed;
-  } catch (e) {}
-  return { asignaciones: {} };
-};
 
 export default function Cashflow() {
   const queryClient = useQueryClient();
@@ -131,18 +122,19 @@ export default function Cashflow() {
     if (!movimientos || !configSaldos || !facturas || !clientes || !equipo) return [];
 
     let saldoActual = 0;
-    Object.values(configSaldos).forEach(v => saldoActual += Number(v));
+    Object.values(configSaldos).forEach(v => saldoActual = parseFinancial(saldoActual + Number(v)));
     movimientos.forEach(m => {
-      let isUSD = false;
-      try { const p = JSON.parse(m.notas || '{}'); if (p.moneda === 'USD') isUSD = true; } catch(e){}
-      const valor = isUSD ? Number(m.monto) * cotizacion : Number(m.monto);
-      if (m.tipo === 'ingreso') saldoActual += valor;
-      else if (m.tipo === 'egreso') saldoActual -= valor;
+      const notas = parseNotas(m.notas);
+      const isUSD = notas.moneda === 'USD';
+      const valor = parseFinancial(isUSD ? Number(m.monto) * cotizacion : Number(m.monto));
+      if (m.tipo === 'ingreso') saldoActual = parseFinancial(saldoActual + valor);
+      else if (m.tipo === 'egreso') saldoActual = parseFinancial(saldoActual - valor);
     });
 
     const hoy = new Date();
     const meses = [];
     for (let i = 0; i <= (11 - hoy.getMonth()); i++) {
+      // Usamos el primer día del mes en la zona horaria local
       const d = new Date(hoy.getFullYear(), hoy.getMonth() + i, 1);
       meses.push(d);
     }
@@ -157,7 +149,7 @@ export default function Cashflow() {
       const ingresosDetalle: any[] = [];
       const facturasMes = facturas.filter(f => f.mes?.startsWith(mesKey) && f.estado !== 'pagado');
       facturasMes.forEach(f => {
-        const monto = Number(f.monto_final || f.monto_base || 0);
+        const monto = parseFinancial(f.monto_final || f.monto_base || 0);
         const cli = clientes.find(c => c.id === f.cliente_id);
         ingresosDetalle.push({ nombre: cli?.nombre || 'Manual', monto, tipo: 'Factura Pendiente', isSim: false });
       });
@@ -168,7 +160,7 @@ export default function Cashflow() {
           const finString = c.fecha_fin ? c.fecha_fin.substring(0, 7) : '9999-99';
           const inicioString = c.fecha_inicio ? c.fecha_inicio.substring(0, 7) : '0000-00';
           if (finString >= mesKey && inicioString <= mesKey) {
-            const monto = Number(c.monto_ars || 0) + (Number(c.monto_usd || 0) * cotizacion);
+            const monto = parseFinancial(Number(c.monto_ars || 0) + (Number(c.monto_usd || 0) * cotizacion));
             ingresosDetalle.push({ nombre: c.nombre, monto, tipo: 'Abono Estimado (MRR)', isSim: false });
             clientesActivosCount++;
           }
@@ -180,10 +172,10 @@ export default function Cashflow() {
       // Sumar ingresos simulados
       const simIncomes = adjustments[mesKey]?.incomes || [];
       simIncomes.forEach(item => {
-        ingresosDetalle.push({ nombre: item.label, monto: item.amount, tipo: 'Simulación', isSim: true });
+        ingresosDetalle.push({ nombre: item.label, monto: parseFinancial(item.amount), tipo: 'Simulación', isSim: true });
       });
 
-      const totalIngresos = ingresosDetalle.reduce((acc, i) => acc + i.monto, 0);
+      const totalIngresos = parseFinancial(ingresosDetalle.reduce((acc, i) => acc + i.monto, 0));
 
       // --- EGRESOS ---
       const egresosDetalle: any[] = [];
@@ -199,35 +191,35 @@ export default function Cashflow() {
             const finString = c.fecha_fin ? c.fecha_fin.substring(0, 7) : '9999-99';
             const inicioString = c.fecha_inicio ? c.fecha_inicio.substring(0, 7) : '0000-00';
             if (finString >= mesKey && inicioString <= mesKey) {
-              costoProyectos += Number(monto);
+              costoProyectos = parseFinancial(costoProyectos + Number(monto));
               proyectosMiembro.push(c.nombre);
             }
           }
         });
 
-        const totalMiembro = Number(miembro.honorario_mensual) + costoProyectos;
+        const totalMiembro = parseFinancial(Number(miembro.honorario_mensual) + costoProyectos);
         if (totalMiembro > 0) {
-          totalEquipo += totalMiembro;
+          totalEquipo = parseFinancial(totalEquipo + totalMiembro);
           egresosDetalle.push({ nombre: miembro.nombre, monto: totalMiembro, detalle: `Base: ${formatARS(miembro.honorario_mensual)} + Proy: ${proyectosMiembro.join(', ') || '-'}`, isSim: false });
         }
       });
 
-      if (gastosFijos > 0) egresosDetalle.push({ nombre: 'Gastos Fijos Estimados', monto: gastosFijos, detalle: 'Configuración general', isSim: false });
+      if (gastosFijos > 0) egresosDetalle.push({ nombre: 'Gastos Fijos Estimados', monto: parseFinancial(gastosFijos), detalle: 'Configuración general', isSim: false });
 
       // Sumar egresos simulados
       const simExpenses = adjustments[mesKey]?.expenses || [];
       simExpenses.forEach(item => {
-        egresosDetalle.push({ nombre: item.label, monto: item.amount, detalle: 'Simulación', isSim: true });
+        egresosDetalle.push({ nombre: item.label, monto: parseFinancial(item.amount), detalle: 'Simulación', isSim: true });
       });
 
-      const totalEgresos = totalEquipo + gastosFijos + simExpenses.reduce((acc, e) => acc + e.amount, 0);
+      const totalEgresos = parseFinancial(totalEquipo + gastosFijos + simExpenses.reduce((acc, e) => acc + e.amount, 0));
 
-      const netoMes = totalIngresos - totalEgresos;
-      acumulado += netoMes;
+      const netoMes = parseFinancial(totalIngresos - totalEgresos);
+      acumulado = parseFinancial(acumulado + netoMes);
 
       // Ticket Saludable
-      const ingresoObjetivo = totalEgresos / 0.75;
-      const ticketSaludable = clientesActivosCount > 0 ? ingresoObjetivo / clientesActivosCount : 0;
+      const ingresoObjetivo = parseFinancial(totalEgresos / 0.75);
+      const ticketSaludable = clientesActivosCount > 0 ? parseFinancial(ingresoObjetivo / clientesActivosCount) : 0;
 
       return {
         key: mesKey,

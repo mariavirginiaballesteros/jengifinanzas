@@ -3,32 +3,8 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { supabase } from '@/integrations/supabase/client';
 import { TipAlert } from '@/components/TipAlert';
 import { Plus, Edit2, Trash2, MessageCircle, Save, ChevronDown, ChevronRight, Building, Send, Link as LinkIcon, DollarSign } from 'lucide-react';
-import { formatARS } from '@/lib/utils';
+import { formatARS, parseFinancial, parseDescripcion } from '@/lib/utils';
 import { showSuccess, showError } from '@/utils/toast';
-
-// Helper para guardar todo en JSON
-const parseDescripcion = (descStr: string | null) => {
-  if (!descStr) return { texto: '', periodo: '', link: '', monto_pagado: 0, retencion_ganancias: 0, retencion_iva: 0, iva_a_guardar: 0, monto_retenido: 0, es_informal: false };
-  try {
-    const parsed = JSON.parse(descStr);
-    if (parsed && typeof parsed === 'object') {
-      return {
-        texto: parsed.texto || '',
-        periodo: parsed.periodo || '',
-        link: parsed.link || '',
-        monto_pagado: Number(parsed.monto_pagado) || 0,
-        retencion_ganancias: Number(parsed.retencion_ganancias) || 0,
-        retencion_iva: Number(parsed.retencion_iva) || 0,
-        iva_a_guardar: Number(parsed.iva_a_guardar) || 0,
-        monto_retenido: Number(parsed.monto_retenido) || 0, // Legacy
-        es_informal: Boolean(parsed.es_informal) || false
-      };
-    }
-  } catch (e) {
-    // Si no es JSON, es texto plano viejo
-  }
-  return { texto: descStr || '', periodo: '', link: '', monto_pagado: 0, retencion_ganancias: 0, retencion_iva: 0, iva_a_guardar: 0, monto_retenido: 0, es_informal: false };
-};
 
 export default function Facturacion() {
   const queryClient = useQueryClient();
@@ -85,9 +61,9 @@ export default function Facturacion() {
       let dataToSave = { ...payload };
 
       if ('monto_base' in payload) {
-        const inflacion = Number(payload.porcentaje_inflacion) || 0;
-        const base = Number(payload.monto_base) || 0;
-        dataToSave.monto_final = base * (1 + (inflacion / 100));
+        const inflacion = parseFinancial(payload.porcentaje_inflacion) || 0;
+        const base = parseFinancial(payload.monto_base) || 0;
+        dataToSave.monto_final = parseFinancial(base * (1 + (inflacion / 100)));
       }
 
       if (editingId || payload.id) {
@@ -178,11 +154,11 @@ export default function Facturacion() {
   const confirmPayment = () => {
     const { row } = payModal;
     const desc = parseDescripcion(row.descripcion);
-    const acumulado = Number(payData.monto_pagado);
-    const retGan = Number(payData.retencion_ganancias);
-    const retIva = Number(payData.retencion_iva);
-    const ivaGuardar = Number(payData.iva_a_guardar);
-    const final = Number(row.monto_final || row.monto_base);
+    const acumulado = parseFinancial(payData.monto_pagado);
+    const retGan = parseFinancial(payData.retencion_ganancias);
+    const retIva = parseFinancial(payData.retencion_iva);
+    const ivaGuardar = parseFinancial(payData.iva_a_guardar);
+    const final = parseFinancial(row.monto_final || row.monto_base);
     
     const newDesc = JSON.stringify({
       ...desc,
@@ -195,11 +171,11 @@ export default function Facturacion() {
     });
 
     // La factura se considera cancelada por la suma de lo que cobraste + lo que te retuvieron
-    const totalCancelado = acumulado + retGan + retIva;
+    const totalCancelado = parseFinancial(acumulado + retGan + retIva);
     let finalEstado = payData.estado_destino;
     
     // Margen de 1 centavo por errores de redondeo
-    if (totalCancelado >= final - 0.01) finalEstado = 'pagado';
+    if (totalCancelado >= parseFinancial(final - 0.01)) finalEstado = 'pagado';
     else if (totalCancelado > 0 && totalCancelado < final) finalEstado = 'pago_parcial';
     else if (totalCancelado === 0) finalEstado = 'por_enviar';
 

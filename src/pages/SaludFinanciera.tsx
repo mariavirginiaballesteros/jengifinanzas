@@ -1,27 +1,14 @@
 import React, { useMemo, useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { supabase } from '@/integrations/supabase/client';
-import { formatARS, formatUSD } from '@/lib/utils';
+import { formatARS, formatUSD, formatLocalDate, parseFinancial, parseNotas } from '@/lib/utils';
 import { TipAlert } from '@/components/TipAlert';
-import { 
-  ChevronLeft, ChevronRight, Bot, Sparkles, 
+import {
+  ChevronLeft, ChevronRight, Bot, Sparkles,
   ShieldCheck, Lightbulb, Send, Loader2, Landmark, X, FileText, Calendar, Settings, Info, Wallet
 } from 'lucide-react';
 import { useCotizacionOficial } from '@/hooks/useCotizacion';
 import { showError, showSuccess } from '@/utils/toast';
-
-const parseNotas = (notasStr: string | null) => {
-  if (!notasStr) return { texto: '', moneda: 'ARS', asignaciones: {} as Record<string, number> };
-  try {
-    const parsed = JSON.parse(notasStr);
-    if (parsed && typeof parsed === 'object') return { 
-      texto: parsed.texto || '', 
-      moneda: parsed.moneda || 'ARS',
-      asignaciones: parsed.asignaciones || {}
-    };
-  } catch(e){}
-  return { texto: notasStr || '', moneda: 'ARS', asignaciones: {} };
-};
 
 export default function SaludFinanciera() {
   const queryClient = useQueryClient();
@@ -129,7 +116,7 @@ export default function SaludFinanciera() {
 
     const saldosCalc: Record<string, { ars: number, usd: number }> = {};
     Object.entries(configSaldos).forEach(([cuenta, monto]) => {
-      const val = Number(monto);
+      const val = parseFinancial(monto);
       if (!isNaN(val)) saldosCalc[cuenta] = { ars: val, usd: 0 };
     });
 
@@ -139,7 +126,7 @@ export default function SaludFinanciera() {
     const totalesMes = mesesKeys.map(() => ({ ingresos: 0, egresos: 0, neto: 0, margen:0, saldoCaja: 0 }));
 
     let saldoInicialAnio = 0;
-    Object.values(saldosCalc).forEach(s => { saldoInicialAnio += s.ars; });
+    Object.values(saldosCalc).forEach(s => { saldoInicialAnio = parseFinancial(saldoInicialAnio + s.ars); });
 
     movimientos.forEach(m => {
       if (!m.fecha) return;
@@ -147,32 +134,32 @@ export default function SaludFinanciera() {
       const isUSD = notasParsed.moneda === 'USD';
       const notasTexto = notasParsed.texto;
       
-      const montoOriginal = Number(m.monto) || 0;
-      const valorEnPesos = isUSD ? montoOriginal * cotizacion : montoOriginal;
+      const montoOriginal = parseFinancial(m.monto) || 0;
+      const valorEnPesos = parseFinancial(isUSD ? montoOriginal * cotizacion : montoOriginal);
 
       if (!saldosCalc[m.cuenta]) saldosCalc[m.cuenta] = { ars: 0, usd: 0 };
 
       if (m.tipo === 'ingreso') {
-        if (isUSD) saldosCalc[m.cuenta].usd += montoOriginal;
-        else saldosCalc[m.cuenta].ars += montoOriginal;
+        if (isUSD) saldosCalc[m.cuenta].usd = parseFinancial(saldosCalc[m.cuenta].usd + montoOriginal);
+        else saldosCalc[m.cuenta].ars = parseFinancial(saldosCalc[m.cuenta].ars + montoOriginal);
       } else if (m.tipo === 'egreso') {
-        if (isUSD) saldosCalc[m.cuenta].usd -= montoOriginal;
-        else saldosCalc[m.cuenta].ars -= montoOriginal;
+        if (isUSD) saldosCalc[m.cuenta].usd = parseFinancial(saldosCalc[m.cuenta].usd - montoOriginal);
+        else saldosCalc[m.cuenta].ars = parseFinancial(saldosCalc[m.cuenta].ars - montoOriginal);
       } else if (m.tipo === 'transferencia' && m.cuenta_destino) {
         if (!saldosCalc[m.cuenta_destino]) saldosCalc[m.cuenta_destino] = { ars: 0, usd: 0 };
         if (isUSD) {
-          saldosCalc[m.cuenta].usd -= montoOriginal;
-          saldosCalc[m.cuenta_destino].usd += montoOriginal;
+          saldosCalc[m.cuenta].usd = parseFinancial(saldosCalc[m.cuenta].usd - montoOriginal);
+          saldosCalc[m.cuenta_destino].usd = parseFinancial(saldosCalc[m.cuenta_destino].usd + montoOriginal);
         } else {
-          saldosCalc[m.cuenta].ars -= montoOriginal;
-          saldosCalc[m.cuenta_destino].ars += montoOriginal;
+          saldosCalc[m.cuenta].ars = parseFinancial(saldosCalc[m.cuenta].ars - montoOriginal);
+          saldosCalc[m.cuenta_destino].ars = parseFinancial(saldosCalc[m.cuenta_destino].ars + montoOriginal);
         }
       }
 
       const anioMov = parseInt(m.fecha.substring(0, 4));
       if (anioMov < yearSelected) {
-        if (m.tipo === 'ingreso') saldoInicialAnio += valorEnPesos;
-        else if (m.tipo === 'egreso') saldoInicialAnio -= valorEnPesos;
+        if (m.tipo === 'ingreso') saldoInicialAnio = parseFinancial(saldoInicialAnio + valorEnPesos);
+        else if (m.tipo === 'egreso') saldoInicialAnio = parseFinancial(saldoInicialAnio - valorEnPesos);
       } else if (anioMov === yearSelected) {
         const mesIndex = mesesKeys.indexOf(m.fecha.substring(0, 7));
         if (mesIndex !== -1 && (m.tipo === 'ingreso' || m.tipo === 'egreso')) {
@@ -180,15 +167,15 @@ export default function SaludFinanciera() {
           if (m.tipo === 'ingreso') {
             const cat = m.concepto || 'Otros Ingresos';
             if (!ingresosPorCategoria[cat]) ingresosPorCategoria[cat] = { nombre: cat, data: Array(12).fill(0), details: Array(12).fill(0).map(() => []) };
-            ingresosPorCategoria[cat].data[mesIndex] += valorEnPesos;
+            ingresosPorCategoria[cat].data[mesIndex] = parseFinancial(ingresosPorCategoria[cat].data[mesIndex] + valorEnPesos);
             ingresosPorCategoria[cat].details[mesIndex].push(movConDetalle);
-            totalesMes[mesIndex].ingresos += valorEnPesos;
+            totalesMes[mesIndex].ingresos = parseFinancial(totalesMes[mesIndex].ingresos + valorEnPesos);
           } else {
             const cat = m.concepto || 'Otros Gastos';
             if (!egresosPorCategoria[cat]) egresosPorCategoria[cat] = { nombre: cat, data: Array(12).fill(0), details: Array(12).fill(0).map(() => []) };
-            egresosPorCategoria[cat].data[mesIndex] += valorEnPesos;
+            egresosPorCategoria[cat].data[mesIndex] = parseFinancial(egresosPorCategoria[cat].data[mesIndex] + valorEnPesos);
             egresosPorCategoria[cat].details[mesIndex].push(movConDetalle);
-            totalesMes[mesIndex].egresos += valorEnPesos;
+            totalesMes[mesIndex].egresos = parseFinancial(totalesMes[mesIndex].egresos + valorEnPesos);
           }
         }
       }
@@ -198,16 +185,16 @@ export default function SaludFinanciera() {
     let totalARS_puro = 0;
     let totalUSD_puro = 0;
     Object.values(saldosCalc).forEach(s => {
-      totalARS_puro += s.ars;
-      totalUSD_puro += s.usd;
-      totalCajaARS += s.ars + (s.usd * cotizacion);
+      totalARS_puro = parseFinancial(totalARS_puro + s.ars);
+      totalUSD_puro = parseFinancial(totalUSD_puro + s.usd);
+      totalCajaARS = parseFinancial(totalCajaARS + s.ars + (s.usd * cotizacion));
     });
 
     let acumulado = saldoInicialAnio;
-    totalesMes.forEach(t => { 
-      t.neto = t.ingresos - t.egresos; 
-      t.margen = t.ingresos > 0 ? (t.neto / t.ingresos) * 100 : 0; 
-      acumulado += t.neto;
+    totalesMes.forEach(t => {
+      t.neto = parseFinancial(t.ingresos - t.egresos);
+      t.margen = t.ingresos > 0 ? (t.neto / t.ingresos) * 100 : 0;
+      acumulado = parseFinancial(acumulado + t.neto);
       t.saldoCaja = acumulado;
     });
 
@@ -216,22 +203,22 @@ export default function SaludFinanciera() {
     
     const ingresosPendientesMes = facturas
       .filter(f => f.mes?.startsWith(mesActualKey) && f.estado !== 'pagado')
-      .reduce((acc, f) => acc + Number(f.monto_final || f.monto_base || 0), 0);
+      .reduce((acc, f) => parseFinancial(acc + Number(f.monto_final || f.monto_base || 0)), 0);
 
     const egresosEquipoMes = equipo.reduce((acc, e) => {
       const notas = parseNotas(e.notas);
-      let totalMiembro = Number(e.honorario_mensual || 0);
+      let totalMiembro = parseFinancial(e.honorario_mensual || 0);
       Object.entries(notas.asignaciones).forEach(([cId, monto]) => {
-        if (clientes.find(c => c.id === cId)) totalMiembro += Number(monto);
+        if (clientes.find(c => c.id === cId)) totalMiembro = parseFinancial(totalMiembro + Number(monto));
       });
-      return acc + totalMiembro;
+      return parseFinancial(acc + totalMiembro);
     }, 0);
 
-    const montoRealHoy = totalCajaARS + ingresosPendientesMes - egresosEquipoMes;
+    const montoRealHoy = parseFinancial(totalCajaARS + ingresosPendientesMes - egresosEquipoMes);
 
-    const costoMensualReserva = gastosFijos + costoDireccion + extraReserva;
-    const fondoReservaObjetivo = costoMensualReserva * 6;
-    const excedente = Math.max(0, montoRealHoy - fondoReservaObjetivo);
+    const costoMensualReserva = parseFinancial(gastosFijos + costoDireccion + extraReserva);
+    const fondoReservaObjetivo = parseFinancial(costoMensualReserva * 6);
+    const excedente = Math.max(0, parseFinancial(montoRealHoy - fondoReservaObjetivo));
     const porcentajeFondo = Math.max(0, Math.min(100, (montoRealHoy / (fondoReservaObjetivo || 1)) * 100));
 
     return { 
@@ -349,7 +336,7 @@ export default function SaludFinanciera() {
                 selectedDetail.movimientos.map((m, i) => (
                   <div key={i} className="bg-gray-50 border border-gray-100 p-4 rounded-xl shadow-sm">
                     <div className="flex justify-between items-start mb-2">
-                      <span className="text-[10px] font-bold text-gray-400 uppercase flex items-center gap-1"><Calendar size={10} /> {new Date(m.fecha).toLocaleDateString('es-AR')}</span>
+                      <span className="text-[10px] font-bold text-gray-400 uppercase flex items-center gap-1"><Calendar size={10} /> {formatLocalDate(m.fecha)}</span>
                       <span className={`font-mono font-bold ${m.tipo === 'ingreso' ? 'text-green-600' : 'text-red-600'}`}>{m.tipo === 'ingreso' ? '+' : '-'}{m.isUSD ? formatUSD(m.monto) : formatARS(m.monto)}</span>
                     </div>
                     <p className="text-sm font-bold text-gray-800 mb-1">{m.notasTexto || 'Sin detalle específico'}</p>
