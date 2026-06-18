@@ -392,40 +392,43 @@ export default function SaludFinanciera() {
 
       <section className="mb-8">
         <h2 className="text-sm font-bold uppercase tracking-widest text-gray-500 mb-3 flex items-center gap-2"><Landmark size={16} /> Saldos Reales por Cuenta</h2>
-        <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-6 gap-3">
+        <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-4">
           {Object.entries(saldos).map(([cuenta, montos]: [string, any]) => {
             const totalConsolidadoCuenta = montos.ars + (montos.usd * cotizacion);
             const hasUSD = montos.usd !== 0;
 
             return (
-              <div key={cuenta} className="p-4 rounded-2xl border bg-white border-jengibre-border shadow-sm hover:shadow-md transition-all group">
-                <div className="flex items-center gap-2 mb-2">
-                  <div className="p-1.5 rounded-lg bg-gray-50 text-gray-400 group-hover:text-jengibre-primary transition-colors">
+              <div key={cuenta} className="p-4 rounded-2xl border bg-white border-jengibre-border shadow-sm hover:shadow-md transition-all group flex flex-col justify-between min-w-0">
+                <div className="flex items-center gap-2 mb-3">
+                  <div className="p-1.5 rounded-lg bg-gray-50 text-gray-400 group-hover:text-jengibre-primary transition-colors shrink-0">
                     <Wallet size={14} />
                   </div>
-                  <span className="text-[10px] font-bold uppercase text-gray-500 truncate">{cuenta}</span>
+                  <span className="text-[10px] font-bold uppercase text-gray-500 truncate" title={cuenta}>{cuenta}</span>
                 </div>
                 
-                {/* Mostramos primero el monto en dólares si existe */}
-                {hasUSD ? (
-                  <>
-                    <p className="text-xl font-mono font-bold text-blue-600 leading-tight">{formatUSD(montos.usd)}</p>
-                    <p className="text-[10px] text-gray-400 mt-1">Eq: {formatARS(totalConsolidadoCuenta)}</p>
-                  </>
-                ) : (
-                  <p className="text-xl font-mono font-bold text-gray-900 leading-tight">{formatARS(totalConsolidadoCuenta)}</p>
-                )}
+                <div className="min-w-0">
+                  {hasUSD ? (
+                    <>
+                      <p className="text-lg sm:text-xl font-mono font-bold text-blue-600 leading-tight truncate" title={formatUSD(montos.usd)}>{formatUSD(montos.usd)}</p>
+                      <p className="text-[10px] text-gray-400 mt-1 truncate" title={`Eq: ${formatARS(totalConsolidadoCuenta)}`}>Eq: {formatARS(totalConsolidadoCuenta)}</p>
+                    </>
+                  ) : (
+                    <p className="text-lg sm:text-xl font-mono font-bold text-gray-900 leading-tight truncate" title={formatARS(totalConsolidadoCuenta)}>{formatARS(totalConsolidadoCuenta)}</p>
+                  )}
+                </div>
               </div>
             );
           })}
           
-          <div className="p-4 rounded-2xl border border-jengibre-primary bg-jengibre-primary text-white shadow-lg transform hover:scale-[1.02] transition-all">
-            <div className="flex items-center gap-2 mb-2">
-              <Landmark size={14} className="opacity-80" />
-              <span className="text-[10px] font-bold uppercase opacity-80">Total Agencia (Eq. ARS)</span>
+          <div className="p-4 rounded-2xl border border-jengibre-primary bg-jengibre-primary text-white shadow-lg transform hover:scale-[1.02] transition-all flex flex-col justify-between min-w-0">
+            <div className="flex items-center gap-2 mb-3">
+              <Landmark size={14} className="opacity-80 shrink-0" />
+              <span className="text-[10px] font-bold uppercase opacity-80 truncate">Total Agencia (Eq. ARS)</span>
             </div>
-            <p className="text-xl font-mono font-bold">{formatARS(totalCajaARS)}</p>
-            <p className="text-[10px] opacity-60 mt-1">Consolidado total</p>
+            <div className="min-w-0">
+              <p className="text-lg sm:text-xl font-mono font-bold truncate" title={formatARS(totalCajaARS)}>{formatARS(totalCajaARS)}</p>
+              <p className="text-[10px] opacity-60 mt-1 truncate">Consolidado total</p>
+            </div>
           </div>
         </div>
       </section>
