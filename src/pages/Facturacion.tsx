@@ -492,7 +492,7 @@ export default function Facturacion() {
                           const finalMonto = Number(row.monto_final || row.monto_base);
                           
                           // Resta
-                          const sumaCancelada = descData.monto_pagado + descData.retencion_ganancias + descData.monto_retenido;
+                          const sumaCancelada = descData.monto_pagado + descData.retencion_ganancias + descData.retencion_iva + descData.monto_retenido;
                           const resta = finalMonto - sumaCancelada;
                           
                           return (

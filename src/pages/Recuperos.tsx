@@ -154,8 +154,6 @@ export default function Recuperos() {
 
   // WhatsApp
   const handleWhatsApp = (rec: any) => {
-    const totalARecuperar = Number(rec.monto);
-    
     let msg = `Hola ${rec.cliente?.contacto_nombre || 'equipo'}! Te paso el detalle de un consumo que abonamos por ustedes para que puedan enviarnos el reembolso:%0A%0A`;
     
     msg += `*Concepto:* ${rec.concepto}%0A`;
@@ -172,12 +170,6 @@ export default function Recuperos() {
     
     window.open(`https://wa.me/?text=${msg}`, '_blank');
   };
-
-  // Cálculos en vivo para el formulario
-  const baseMonto = Number(formData.monto) || 0;
-  const ivaPreview = formData.tiene_iva ? baseMonto * 0.21 : 0;
-  const iibbPreview = formData.tiene_iva ? baseMonto * (Number(formData.iibb_porcentaje) / 100) : 0;
-  const totalPreview = baseMonto + ivaPreview + iibbPreview;
 
   return (
     <div className="animate-in fade-in duration-500 pb-12 w-full">

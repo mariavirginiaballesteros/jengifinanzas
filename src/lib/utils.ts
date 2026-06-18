@@ -97,6 +97,7 @@ export function parseDescripcion(descStr: string | null) {
     link: '',
     monto_pagado: 0,
     retencion_ganancias: 0,
+    retencion_iva: 0,
     monto_retenido: 0,
     es_informal: false
   };
@@ -112,6 +113,7 @@ export function parseDescripcion(descStr: string | null) {
         link: parsed.link || '',
         monto_pagado: parseFinancial(parsed.monto_pagado),
         retencion_ganancias: parseFinancial(parsed.retencion_ganancias),
+        retencion_iva: parseFinancial(parsed.retencion_iva),
         monto_retenido: parseFinancial(parsed.monto_retenido),
         es_informal: Boolean(parsed.es_informal)
       };

@@ -118,6 +118,7 @@ export default function SaludFinanciera() {
 
     const saldosCalc: Record<string, { ars: number, usd: number }> = {};
     Object.entries(configSaldos).forEach(([cuenta, monto]) => {
+      if (cuenta === 'IVA') return;
       const val = parseFinancial(monto);
       if (!isNaN(val)) saldosCalc[cuenta] = { ars: val, usd: 0 };
     });
@@ -131,7 +132,7 @@ export default function SaludFinanciera() {
     Object.values(saldosCalc).forEach(s => { saldoInicialAnio = parseFinancial(saldoInicialAnio + s.ars); });
 
     movimientos.forEach(m => {
-      if (!m.fecha) return;
+      if (!m.fecha || m.cuenta === 'IVA') return;
       const notasParsed = parseNotas(m.notas);
       // Forzamos ARS para MP Mauro por definición de negocio
       const isUSD = m.cuenta === 'MP Mauro' ? false : notasParsed.moneda === 'USD';
@@ -149,13 +150,18 @@ export default function SaludFinanciera() {
         if (isUSD) saldosCalc[m.cuenta].usd = parseFinancial(saldosCalc[m.cuenta].usd - montoOriginal);
         else saldosCalc[m.cuenta].ars = parseFinancial(saldosCalc[m.cuenta].ars - montoOriginal);
       } else if (m.tipo === 'transferencia' && m.cuenta_destino) {
-        if (!saldosCalc[m.cuenta_destino]) saldosCalc[m.cuenta_destino] = { ars: 0, usd: 0 };
-        if (isUSD) {
-          saldosCalc[m.cuenta].usd = parseFinancial(saldosCalc[m.cuenta].usd - montoOriginal);
-          saldosCalc[m.cuenta_destino].usd = parseFinancial(saldosCalc[m.cuenta_destino].usd + montoOriginal);
+        if (m.cuenta_destino === 'IVA') {
+          if (isUSD) saldosCalc[m.cuenta].usd = parseFinancial(saldosCalc[m.cuenta].usd - montoOriginal);
+          else saldosCalc[m.cuenta].ars = parseFinancial(saldosCalc[m.cuenta].ars - montoOriginal);
         } else {
-          saldosCalc[m.cuenta].ars = parseFinancial(saldosCalc[m.cuenta].ars - montoOriginal);
-          saldosCalc[m.cuenta_destino].ars = parseFinancial(saldosCalc[m.cuenta_destino].ars + montoOriginal);
+          if (!saldosCalc[m.cuenta_destino]) saldosCalc[m.cuenta_destino] = { ars: 0, usd: 0 };
+          if (isUSD) {
+            saldosCalc[m.cuenta].usd = parseFinancial(saldosCalc[m.cuenta].usd - montoOriginal);
+            saldosCalc[m.cuenta_destino].usd = parseFinancial(saldosCalc[m.cuenta_destino].usd + montoOriginal);
+          } else {
+            saldosCalc[m.cuenta].ars = parseFinancial(saldosCalc[m.cuenta].ars - montoOriginal);
+            saldosCalc[m.cuenta_destino].ars = parseFinancial(saldosCalc[m.cuenta_destino].ars + montoOriginal);
+          }
         }
       }
 
@@ -209,7 +215,7 @@ export default function SaludFinanciera() {
       .reduce((acc, f) => {
         const desc = parseDescripcion(f.descripcion);
         const final = Number(f.monto_final || f.monto_base || 0);
-        const cobrado = desc.monto_pagado + desc.retencion_ganancias + desc.monto_retenido;
+        const cobrado = desc.monto_pagado + desc.retencion_ganancias + desc.retencion_iva + desc.monto_retenido;
         return parseFinancial(acc + (final - cobrado));
       }, 0);
 
@@ -445,20 +451,23 @@ export default function SaludFinanciera() {
               <div>
                 <p className="text-[10px] font-bold text-gray-400 uppercase tracking-widest mb-1">Monto Real Proyectado (Hoy)</p>
                 <div className="flex items-center gap-2">
-                  <p className="text-2xl font-mono font-bold text-gray-900">{formatARS(montoRealHoy)}</p>
-                  <div className="group relative">
-                    <Info size={14} className="text-gray-400 cursor-help" />
-                    <div className="absolute left-0 bottom-full mb-2 w-64 p-3 bg-gray-900 text-white text-[10px] rounded-lg opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none z-50 shadow-xl">
-                      <p className="font-bold mb-1 border-b border-white/20 pb-1">Cálculo de Disponibilidad:</p>
-                      <div className="space-y-1">
-                        <div className="flex justify-between"><span>Saldo en Cuentas:</span> <span className="font-mono">{formatARS(totalCajaARS)}</span></div>
-                        <div className="flex justify-between text-green-400"><span>(+) Facturas por Cobrar:</span> <span className="font-mono">{formatARS(ingresosPendientes)}</span></div>
-                        <div className="flex justify-between text-red-400"><span>(-) Honorarios Pendientes:</span> <span className="font-mono">{formatARS(egresosEquipoPendientes)}</span></div>
-                      </div>
-                    </div>
+                  <p className="text-3xl font-mono font-bold text-jengibre-dark">{formatARS(montoRealHoy)}</p>
+                </div>
+                <div className="mt-3 space-y-1.5">
+                  <div className="flex items-center justify-between text-[11px] text-gray-500 border-b border-gray-200 pb-1">
+                    <span>Saldo en Cuentas:</span>
+                    <span className="font-mono font-bold">{formatARS(totalCajaARS)}</span>
+                  </div>
+                  <div className="flex items-center justify-between text-[11px] text-green-600 border-b border-gray-200 pb-1">
+                    <span>(+) Facturas por Cobrar:</span>
+                    <span className="font-mono font-bold">{formatARS(ingresosPendientes)}</span>
+                  </div>
+                  <div className="flex items-center justify-between text-[11px] text-red-500">
+                    <span>(-) Honorarios Pendientes:</span>
+                    <span className="font-mono font-bold">{formatARS(egresosEquipoPendientes)}</span>
                   </div>
                 </div>
-                <div className="mt-2 space-y-1">
+                <div className="mt-4 space-y-1">
                   <p className="text-[10px] text-gray-500 flex items-center gap-1">
                     <div className="w-1.5 h-1.5 rounded-full bg-blue-400"></div>
                     Costo Estructural: <span className="font-bold">{formatARS(costoMensualReserva)}</span>
