@@ -30,8 +30,6 @@ export default function Recuperos() {
     concepto: '',
     monto: '',
     fecha_pago: getLocalDateString(),
-    tiene_iva: false,
-    iibb_porcentaje: 3,
     estado: 'pendiente',
     fecha_cobro: '',
     notas: ''
@@ -63,14 +61,9 @@ export default function Recuperos() {
   const saveMutation = useMutation({
     mutationFn: async (payload: any) => {
       const baseMonto = Number(payload.monto);
-      const tieneIva = payload.tiene_iva;
-      const ivaMonto = tieneIva ? baseMonto * 0.21 : 0;
-      const iibbMonto = tieneIva ? baseMonto * (Number(payload.iibb_porcentaje) / 100) : 0;
 
       const notasJson = JSON.stringify({
-        texto: payload.notas,
-        iibb_porcentaje: Number(payload.iibb_porcentaje),
-        iibb_monto: iibbMonto
+        texto: payload.notas
       });
 
       const dataToSave = {
@@ -78,8 +71,8 @@ export default function Recuperos() {
         concepto: payload.concepto,
         monto: baseMonto,
         fecha_pago: payload.fecha_pago,
-        tiene_iva: tieneIva,
-        iva_monto: ivaMonto,
+        tiene_iva: false,
+        iva_monto: 0,
         estado: payload.estado,
         fecha_cobro: payload.estado === 'cobrado' && !payload.fecha_cobro ? getLocalDateString() : (payload.fecha_cobro || null),
         notas: notasJson
@@ -145,8 +138,6 @@ export default function Recuperos() {
       concepto: rec.concepto,
       monto: rec.monto,
       fecha_pago: rec.fecha_pago,
-      tiene_iva: rec.tiene_iva,
-      iibb_porcentaje: notasParsed.iibb_porcentaje || 3,
       estado: rec.estado || 'pendiente',
       fecha_cobro: rec.fecha_cobro || '',
       notas: notasParsed.texto || ''
@@ -163,28 +154,18 @@ export default function Recuperos() {
 
   // WhatsApp
   const handleWhatsApp = (rec: any) => {
-    const notasParsed = parseNotas(rec.notas);
-    const totalImpuestos = (rec.iva_monto || 0) + (notasParsed.iibb_monto || 0);
-    const totalARecuperar = Number(rec.monto) + totalImpuestos;
+    const totalARecuperar = Number(rec.monto);
     
     let msg = `Hola ${rec.cliente?.contacto_nombre || 'equipo'}! Te paso el detalle de un consumo que abonamos por ustedes para que puedan enviarnos el reembolso:%0A%0A`;
     
     msg += `*Concepto:* ${rec.concepto}%0A`;
     msg += `*Fecha del gasto:* ${new Date(rec.fecha_pago).toLocaleDateString('es-AR')}%0A`;
-    msg += `*Monto original:* ${formatARS(rec.monto)}%0A`;
-    
-    if (rec.tiene_iva) {
-      msg += `*Impuestos (IVA + IIBB):* ${formatARS(totalImpuestos)}%0A`;
-    }
-    
-    msg += `%0A*TOTAL A TRANSFERIR:* ${formatARS(totalARecuperar)}%0A%0A`;
+    msg += `*Monto a transferir:* ${formatARS(rec.monto)}%0A%0A`;
     
     if (rec.estado === 'facturado') {
       msg += `Ya les enviamos la factura correspondiente por este monto. `;
     } else if (rec.estado === 'enviado_sin_factura') {
       msg += `Avanzamos con el cobro sin emisión de factura como lo conversamos. `;
-    } else if (rec.tiene_iva) {
-      msg += `En breve les estaremos enviando la factura correspondiente. `;
     }
     
     msg += `Por favor avisen cuando esté realizado el pago. ¡Gracias!`;
@@ -213,8 +194,8 @@ export default function Recuperos() {
         </button>
       </header>
 
-      <TipAlert id="recuperos_intro" title="💡 Recupero con o sin factura">
-        Si el consumo que pagaste requiere que <strong>vos le emitas una factura al cliente</strong> para recuperarlo, marcá la casilla de "Requiere Facturar". El sistema le sumará IVA e Ingresos Brutos automáticamente para que no pierdas plata en impuestos.
+      <TipAlert id="recuperos_intro" title="💡 Recupero de Gastos">
+        Registrá los consumos que pagaste por cuenta de un cliente para llevar el control de qué te deben y qué ya te devolvieron.
       </TipAlert>
 
       {/* FORMULARIO MODAL */}
@@ -229,7 +210,7 @@ export default function Recuperos() {
             <form onSubmit={handleSubmit} className="space-y-4">
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1">Cliente</label>
-                <select 
+                <select
                   className="w-full border border-gray-300 rounded-lg p-2.5 focus:ring-2 focus:ring-jengibre-primary outline-none bg-white"
                   value={formData.cliente_id} onChange={e => setFormData({...formData, cliente_id: e.target.value})}
                   required
@@ -241,7 +222,7 @@ export default function Recuperos() {
 
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1">Concepto / Detalle del Gasto</label>
-                <input 
+                <input
                   type="text" placeholder="Ej: Hosting AWS, Pauta en Meta, Merchandising..." required
                   className="w-full border border-gray-300 rounded-lg p-2.5 focus:ring-2 focus:ring-jengibre-primary outline-none"
                   value={formData.concepto} onChange={e => setFormData({...formData, concepto: e.target.value})}
@@ -250,10 +231,10 @@ export default function Recuperos() {
 
               <div className="grid grid-cols-2 gap-4">
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">Monto Pagado al Proveedor</label>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">Monto a Recuperar</label>
                   <div className="relative">
                     <span className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-500 font-bold">$</span>
-                    <input 
+                    <input
                       type="number" step="0.01" required min="1"
                       className="w-full border border-gray-300 rounded-lg p-2.5 pl-8 focus:ring-2 focus:ring-jengibre-primary outline-none font-mono font-bold text-lg"
                       value={formData.monto} onChange={e => setFormData({...formData, monto: e.target.value})}
@@ -262,58 +243,11 @@ export default function Recuperos() {
                 </div>
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-1">Fecha del Pago</label>
-                  <input 
+                  <input
                     type="date" required
                     className="w-full border border-gray-300 rounded-lg p-2.5 focus:ring-2 focus:ring-jengibre-primary outline-none"
                     value={formData.fecha_pago} onChange={e => setFormData({...formData, fecha_pago: e.target.value})}
                   />
-                </div>
-              </div>
-
-              {/* MÓDULO DE IMPUESTOS */}
-              <div className="bg-blue-50/50 p-4 rounded-xl border border-blue-100 space-y-3 mt-2">
-                <div className="flex items-center gap-3">
-                  <input 
-                    type="checkbox" id="tiene_iva" 
-                    className="w-5 h-5 rounded border-blue-300 text-blue-600 focus:ring-blue-500"
-                    checked={formData.tiene_iva} onChange={e => setFormData({...formData, tiene_iva: e.target.checked})}
-                  />
-                  <label htmlFor="tiene_iva" className="font-bold text-blue-900 cursor-pointer select-none">
-                    Se va a facturar al cliente (Sumar impuestos)
-                  </label>
-                </div>
-
-                {formData.tiene_iva && (
-                  <div className="grid grid-cols-3 gap-3 animate-in slide-in-from-top-2 pt-2 border-t border-blue-100">
-                    <div>
-                      <label className="block text-xs font-bold text-blue-800 mb-1">IVA</label>
-                      <div className="bg-white border border-blue-200 rounded p-2 text-sm font-mono text-gray-600">
-                        +21% ({formatARS(ivaPreview)})
-                      </div>
-                    </div>
-                    <div>
-                      <label className="block text-xs font-bold text-blue-800 mb-1">% IIBB</label>
-                      <div className="relative">
-                        <input 
-                          type="number" step="0.1" min="0" required
-                          className="w-full border border-blue-200 rounded p-2 pr-6 outline-none focus:border-blue-500 font-mono text-sm"
-                          value={formData.iibb_porcentaje} onChange={e => setFormData({...formData, iibb_porcentaje: e.target.value})}
-                        />
-                        <span className="absolute right-2 top-1/2 -translate-y-1/2 text-gray-500 text-xs">%</span>
-                      </div>
-                    </div>
-                    <div>
-                      <label className="block text-xs font-bold text-blue-800 mb-1">Monto IIBB</label>
-                      <div className="bg-white border border-blue-200 rounded p-2 text-sm font-mono text-gray-600">
-                        +{formatARS(iibbPreview)}
-                      </div>
-                    </div>
-                  </div>
-                )}
-
-                <div className="flex justify-between items-center bg-white p-3 rounded-lg border border-blue-200 mt-2 shadow-sm">
-                  <span className="font-bold text-gray-700 text-sm">TOTAL A RECUPERAR:</span>
-                  <span className="font-mono font-bold text-xl text-blue-800">{formatARS(totalPreview)}</span>
                 </div>
               </div>
 
@@ -380,8 +314,6 @@ export default function Recuperos() {
                   <th className="px-4 py-3 font-bold">Fecha Gasto</th>
                   <th className="px-4 py-3 font-bold">Cliente</th>
                   <th className="px-4 py-3 font-bold">Concepto</th>
-                  <th className="px-4 py-3 font-bold text-right">Monto Original</th>
-                  <th className="px-4 py-3 font-bold text-right">Impuestos</th>
                   <th className="px-4 py-3 font-bold text-right bg-blue-50/50">Total a Cobrar</th>
                   <th className="px-4 py-3 font-bold text-center">Estado</th>
                   <th className="px-4 py-3 font-bold text-center">Acciones</th>
@@ -390,8 +322,7 @@ export default function Recuperos() {
               <tbody>
                 {recuperos?.map((rec) => {
                   const notasParsed = parseNotas(rec.notas);
-                  const totalImpuestos = (rec.iva_monto || 0) + (notasParsed.iibb_monto || 0);
-                  const total = Number(rec.monto) + totalImpuestos;
+                  const total = Number(rec.monto);
                   
                   const getStatusStyle = (status: string) => {
                     switch(status) {
@@ -411,10 +342,6 @@ export default function Recuperos() {
                       <td className="px-4 py-4">
                         <p className="text-sm font-medium text-gray-800">{rec.concepto}</p>
                         {notasParsed.texto && <p className="text-xs text-gray-400 mt-0.5 truncate max-w-[200px]">{notasParsed.texto}</p>}
-                      </td>
-                      <td className="px-4 py-4 text-right font-mono text-gray-600">{formatARS(rec.monto)}</td>
-                      <td className="px-4 py-4 text-right font-mono text-gray-500 text-xs">
-                        {rec.tiene_iva ? `+${formatARS(totalImpuestos)}` : '-'}
                       </td>
                       <td className="px-4 py-4 text-right font-mono font-bold text-lg text-jengibre-dark bg-blue-50/20">
                         {formatARS(total)}

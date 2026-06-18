@@ -91,16 +91,14 @@ export function parseNotas(notasStr: string | null) {
  * Centraliza el parseo de la columna 'descripcion' en Facturación.
  */
 export function parseDescripcion(descStr: string | null) {
-  const defaultDesc = { 
-    texto: '', 
-    periodo: '', 
-    link: '', 
-    monto_pagado: 0, 
-    retencion_ganancias: 0, 
-    retencion_iva: 0, 
-    iva_a_guardar: 0, 
-    monto_retenido: 0, 
-    es_informal: false 
+  const defaultDesc = {
+    texto: '',
+    periodo: '',
+    link: '',
+    monto_pagado: 0,
+    retencion_ganancias: 0,
+    monto_retenido: 0,
+    es_informal: false
   };
 
   if (!descStr) return defaultDesc;
@@ -114,8 +112,6 @@ export function parseDescripcion(descStr: string | null) {
         link: parsed.link || '',
         monto_pagado: parseFinancial(parsed.monto_pagado),
         retencion_ganancias: parseFinancial(parsed.retencion_ganancias),
-        retencion_iva: parseFinancial(parsed.retencion_iva),
-        iva_a_guardar: parseFinancial(parsed.iva_a_guardar),
         monto_retenido: parseFinancial(parsed.monto_retenido),
         es_informal: Boolean(parsed.es_informal)
       };

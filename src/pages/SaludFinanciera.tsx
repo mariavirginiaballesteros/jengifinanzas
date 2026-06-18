@@ -209,7 +209,7 @@ export default function SaludFinanciera() {
       .reduce((acc, f) => {
         const desc = parseDescripcion(f.descripcion);
         const final = Number(f.monto_final || f.monto_base || 0);
-        const cobrado = desc.monto_pagado + desc.retencion_ganancias + desc.retencion_iva + desc.monto_retenido;
+        const cobrado = desc.monto_pagado + desc.retencion_ganancias + desc.monto_retenido;
         return parseFinancial(acc + (final - cobrado));
       }, 0);
 

@@ -23,7 +23,6 @@ export default function Caja() {
     cuenta: '',
     cuenta_destino: '',
     cliente_id: '',
-    tiene_iva: false,
     notasTexto: '',
     moneda: 'ARS'
   };
@@ -33,11 +32,11 @@ export default function Caja() {
     queryKey: ['configuracion', 'cuentas_caja'],
     queryFn: async () => {
       const { data } = await supabase.from('configuracion').select('valor').eq('clave', 'cuentas_caja').maybeSingle();
-      return data?.valor ? JSON.parse(data.valor) : ['MP Vir', 'IVA', 'MP Mauro', 'MP Fondo', 'USD'];
+      return data?.valor ? JSON.parse(data.valor) : ['MP Vir', 'MP Mauro', 'MP Fondo', 'USD'];
     }
   });
 
-  const cuentasList: string[] = cuentasConfig || ['MP Vir', 'IVA', 'MP Mauro', 'MP Fondo', 'USD'];
+  const cuentasList: string[] = cuentasConfig || ['MP Vir', 'MP Mauro', 'MP Fondo', 'USD'];
 
   const { data: movimientos, isLoading } = useQuery({
     queryKey: ['movimientos'],
@@ -69,7 +68,6 @@ export default function Caja() {
         cuenta: movData.cuenta,
         cuenta_destino: movData.tipo === 'transferencia' ? movData.cuenta_destino : null,
         cliente_id: movData.cliente_id || null,
-        tiene_iva: movData.tiene_iva,
         notas: jsonNotas
       };
       
@@ -116,7 +114,6 @@ export default function Caja() {
       cuenta: mov.cuenta,
       cuenta_destino: mov.cuenta_destino || '',
       cliente_id: mov.cliente_id || '',
-      tiene_iva: mov.tiene_iva || false,
       notasTexto: notasParsed.texto,
       moneda: notasParsed.moneda
     });

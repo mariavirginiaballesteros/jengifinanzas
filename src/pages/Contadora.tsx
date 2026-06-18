@@ -16,7 +16,6 @@ export default function Contadora() {
     cliente_id: '',
     periodo: getLocalDateString().slice(0, 7), // YYYY-MM
     monto_neto: '',
-    monto_con_iva: '',
     referencia: '',
     datos_adicionales: '',
     estado: 'pendiente'
@@ -49,7 +48,6 @@ export default function Contadora() {
         ...payload,
         cliente_id: payload.cliente_id || null,
         monto_neto: payload.monto_neto ? Number(payload.monto_neto) : null,
-        monto_con_iva: payload.monto_con_iva ? Number(payload.monto_con_iva) : null,
       };
 
       if (editingId) {
@@ -102,7 +100,6 @@ export default function Contadora() {
       cliente_id: sol.cliente_id || '',
       periodo: sol.periodo || '',
       monto_neto: sol.monto_neto || '',
-      monto_con_iva: sol.monto_con_iva || '',
       referencia: sol.referencia || '',
       datos_adicionales: sol.datos_adicionales || '',
       estado: sol.estado || 'pendiente'
@@ -117,13 +114,6 @@ export default function Contadora() {
     setFormData(defaultForm);
   };
 
-  const calcularIva = () => {
-    if (formData.monto_neto) {
-      const neto = Number(formData.monto_neto);
-      setFormData({ ...formData, monto_con_iva: (neto * 1.21).toFixed(2) });
-    }
-  };
-
   const sendWhatsApp = (sol: any) => {
     let msg = `Hola! Te paso un pedido de *${sol.tipo}*:%0A%0A`;
     
@@ -133,8 +123,7 @@ export default function Contadora() {
     }
     
     if (sol.periodo) msg += `*Período:* ${sol.periodo}%0A`;
-    if (sol.monto_neto) msg += `*Monto Neto:* ${formatARS(sol.monto_neto)}%0A`;
-    if (sol.monto_con_iva) msg += `*Monto Final (con IVA):* ${formatARS(sol.monto_con_iva)}%0A`;
+    if (sol.monto_neto) msg += `*Monto:* ${formatARS(sol.monto_neto)}%0A`;
     if (sol.referencia) msg += `*Referencia/Concepto:* ${sol.referencia}%0A`;
     if (sol.datos_adicionales) msg += `*Notas:* ${sol.datos_adicionales}%0A`;
     
@@ -218,29 +207,15 @@ export default function Contadora() {
                 />
               </div>
 
-              <div className="grid grid-cols-2 gap-4 bg-gray-50 p-3 rounded-xl border border-gray-100">
+              <div className="bg-gray-50 p-3 rounded-xl border border-gray-100">
                 <div>
-                  <label className="block text-xs font-bold text-gray-600 uppercase tracking-wider mb-1">Monto Neto</label>
+                  <label className="block text-xs font-bold text-gray-600 uppercase tracking-wider mb-1">Monto</label>
                   <div className="relative">
                     <span className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-500 font-bold">$</span>
-                    <input 
+                    <input
                       type="number" step="0.01"
                       className="w-full border border-gray-300 rounded-lg p-2.5 pl-8 focus:ring-2 focus:ring-jengibre-primary outline-none bg-white"
                       value={formData.monto_neto} onChange={e => setFormData({...formData, monto_neto: e.target.value})}
-                    />
-                  </div>
-                </div>
-                <div>
-                  <div className="flex justify-between items-center mb-1">
-                    <label className="block text-xs font-bold text-gray-600 uppercase tracking-wider">Monto C/ IVA</label>
-                    <button type="button" onClick={calcularIva} className="text-[10px] bg-blue-100 text-blue-700 px-2 py-0.5 rounded font-bold hover:bg-blue-200">+21%</button>
-                  </div>
-                  <div className="relative">
-                    <span className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-500 font-bold">$</span>
-                    <input 
-                      type="number" step="0.01"
-                      className="w-full border border-gray-300 rounded-lg p-2.5 pl-8 focus:ring-2 focus:ring-jengibre-primary outline-none bg-white"
-                      value={formData.monto_con_iva} onChange={e => setFormData({...formData, monto_con_iva: e.target.value})}
                     />
                   </div>
                 </div>
@@ -314,8 +289,7 @@ export default function Contadora() {
                         <p className="text-sm text-gray-700 truncate max-w-[200px]" title={sol.referencia}>{sol.referencia || '-'}</p>
                         {sol.monto_neto && (
                           <div className="flex gap-2 mt-1">
-                            <span className="text-xs font-mono font-bold text-gray-600 bg-gray-100 px-1.5 py-0.5 rounded">Neto: {formatARS(sol.monto_neto)}</span>
-                            {sol.monto_con_iva && <span className="text-xs font-mono font-bold text-blue-700 bg-blue-50 px-1.5 py-0.5 rounded">+IVA: {formatARS(sol.monto_con_iva)}</span>}
+                            <span className="text-xs font-mono font-bold text-gray-600 bg-gray-100 px-1.5 py-0.5 rounded">Monto: {formatARS(sol.monto_neto)}</span>
                           </div>
                         )}
                       </td>

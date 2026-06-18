@@ -5,7 +5,7 @@ import { Plus, Trash2, Wallet, Settings, Lock, KeyRound, Landmark, Edit2, Check,
 import { showSuccess, showError } from '@/utils/toast';
 import { formatARS } from '@/lib/utils';
 
-const DEFAULT_CUENTAS = ['MP Vir', 'IVA', 'MP Mauro', 'MP Fondo', 'USD'];
+const DEFAULT_CUENTAS = ['MP Vir', 'MP Mauro', 'MP Fondo', 'USD'];
 
 export default function Configuracion() {
   const queryClient = useQueryClient();

@@ -17,16 +17,16 @@ export default function Layout() {
 
   const navItems = [
     { to: "/", icon: <Home size={20} />, label: "Dashboard" },
+    { to: "/caja", icon: <DollarSign size={20} />, label: "Caja" },
+    { to: "/salud", icon: <Heart size={20} />, label: "Salud Financiera" },
     { to: "/clientes", icon: <Briefcase size={20} />, label: "Clientes" },
     { to: "/facturacion", icon: <FileText size={20} />, label: "Facturación" },
     { to: "/equipo", icon: <Users size={20} />, label: "Equipo" },
-    { to: "/caja", icon: <DollarSign size={20} />, label: "Caja" },
     { to: "/recuperos", icon: <RefreshCw size={20} />, label: "Recuperos" },
-    { to: "/compras", icon: <ShoppingCart size={20} />, label: "Compras (IVA)" },
+    { to: "/compras", icon: <ShoppingCart size={20} />, label: "Compras" },
     { to: "/proyeccion", icon: <TrendingUp size={20} />, label: "Proyección" },
     { to: "/cashflow", icon: <Wallet size={20} />, label: "Cashflow" },
     { to: "/cotizador", icon: <Calculator size={20} />, label: "Cotizador" },
-    { to: "/salud", icon: <Heart size={20} />, label: "Salud Financiera" },
     { to: "/contadora", icon: <MessageSquare size={20} />, label: "Contadora" },
     { to: "/configuracion", icon: <Settings size={20} />, label: "Configuración" },
   ];

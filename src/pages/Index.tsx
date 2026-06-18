@@ -1,6 +1,6 @@
 import React, { useMemo } from 'react';
 import { formatARS } from '@/lib/utils';
-import { Plus, FileText, RefreshCw, AlertCircle, CheckCircle2, Landmark, TrendingUp, Users, Sparkles, ShieldCheck, ArrowRight, Wallet } from 'lucide-react';
+import { Plus, FileText, RefreshCw, AlertCircle, CheckCircle2, Landmark, TrendingUp, Users, Sparkles, ShieldCheck, ArrowRight, Wallet, ArrowUpRight, ArrowDownRight } from 'lucide-react';
 import { Link } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
 import { supabase } from '@/integrations/supabase/client';
@@ -16,10 +16,10 @@ const StatCard = ({ title, value, sub, icon: Icon, colorClass = "text-blue-600",
         <div className={`p-2 rounded-xl ${bgClass} ${colorClass}`}>
           <Icon size={18} />
         </div>
-        <h3 className="text-xs font-bold uppercase tracking-widest text-gray-500">{title}</h3>
+        <h3 className="text-[10px] font-bold uppercase tracking-widest text-gray-400">{title}</h3>
       </div>
-      <p className="text-3xl font-mono font-bold text-jengibre-dark">{value}</p>
-      {sub && <p className="text-[11px] text-gray-400 mt-2 font-medium">{sub}</p>}
+      <p className="text-2xl font-mono font-bold text-jengibre-dark truncate">{value}</p>
+      {sub && <p className="text-[10px] text-gray-400 mt-2 font-medium truncate">{sub}</p>}
     </div>
   </div>
 );
@@ -33,13 +33,13 @@ const SemaforoKPI = ({ title, value, status, label }: { title: string, value: st
   const current = colors[status];
   
   return (
-    <div className={`border border-jengibre-border p-4 rounded-2xl flex items-center gap-4 bg-white transition-all hover:border-gray-300`}>
+    <div className={`border border-jengibre-border p-4 rounded-2xl flex items-center gap-4 bg-white transition-all hover:border-gray-300 shadow-sm`}>
       <div className={`w-3 h-3 rounded-full shrink-0 animate-pulse ${current.dot}`} />
-      <div className="flex-1">
-        <p className="text-[10px] font-bold text-gray-400 uppercase tracking-widest mb-1">{title}</p>
+      <div className="flex-1 min-w-0">
+        <p className="text-[10px] font-bold text-gray-400 uppercase tracking-widest mb-1 truncate">{title}</p>
         <div className="flex items-baseline gap-2">
-          <span className="text-xl font-mono font-bold text-gray-900">{value}</span>
-          <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded ${current.bg} ${current.text}`}>{label}</span>
+          <span className="text-lg font-mono font-bold text-gray-900 truncate">{value}</span>
+          <span className={`text-[9px] font-bold px-1.5 py-0.5 rounded whitespace-nowrap ${current.bg} ${current.text}`}>{label}</span>
         </div>
       </div>
     </div>
@@ -85,7 +85,6 @@ export default function Dashboard() {
     }
   });
 
-  // Traemos todas las configuraciones de costos para la meta del fondo
   const { data: configRows } = useQuery({
     queryKey: ['configuracion_dashboard_reserva'],
     queryFn: async () => {
@@ -105,7 +104,9 @@ export default function Dashboard() {
     const saldosIniciales = configSaldos || {};
     
     Object.entries(saldosIniciales).forEach(([cuenta, monto]) => {
-      saldosCalc[cuenta] = Number(monto);
+      if (cuenta !== 'IVA') {
+        saldosCalc[cuenta] = Number(monto);
+      }
     });
 
     let ingresosMes = 0;
@@ -118,6 +119,8 @@ export default function Dashboard() {
     const currentYearPrefix = now.getFullYear().toString();
 
     movimientos.forEach(m => {
+      if (m.cuenta === 'IVA') return;
+      
       let isUSD = false;
       try { const p = JSON.parse(m.notas || '{}'); if (p.moneda === 'USD') isUSD = true; } catch(e){}
       
@@ -127,9 +130,13 @@ export default function Dashboard() {
       if (!saldosCalc[m.cuenta]) saldosCalc[m.cuenta] = 0;
 
       if (m.tipo === 'transferencia' && m.cuenta_destino) {
-        if (!saldosCalc[m.cuenta_destino]) saldosCalc[m.cuenta_destino] = 0;
-        saldosCalc[m.cuenta] -= valorEnPesos;
-        saldosCalc[m.cuenta_destino] += valorEnPesos;
+        if (m.cuenta_destino === 'IVA') {
+          saldosCalc[m.cuenta] -= valorEnPesos;
+        } else {
+          if (!saldosCalc[m.cuenta_destino]) saldosCalc[m.cuenta_destino] = 0;
+          saldosCalc[m.cuenta] -= valorEnPesos;
+          saldosCalc[m.cuenta_destino] += valorEnPesos;
+        }
       } else {
         saldosCalc[m.cuenta] += valorEnPesos * factor;
         
@@ -148,15 +155,13 @@ export default function Dashboard() {
     const gananciaYTD = ingresosYTD - costosYTD;
     const resultadoMes = ingresosMes - costosMes;
 
-    // Lógica de Fondo de Emergencia sincronizada con Salud Financiera
     const costoDireccion = Number(configRows.find(r => r.clave === 'costo_direccion_mensual')?.valor || 0);
     const gastosFijos = Number(configRows.find(r => r.clave === 'gastos_fijos_estimados')?.valor || 0);
     const extraReserva = Number(configRows.find(r => r.clave === 'extra_reserva_mensual')?.valor || 0);
     
     const costoMensualReserva = gastosFijos + costoDireccion + extraReserva;
     const metaFondo = costoMensualReserva * 6;
-    const fondoActual = Math.max(0, Math.min(totalCajaARS, metaFondo));
-
+    
     let mrrTotal = 0;
     let maxAbono = 0;
     clientes.forEach(c => {
@@ -182,7 +187,7 @@ export default function Dashboard() {
       arr,
       ticketPromedio,
       ytd: { ingresos: ingresosYTD, costos: costosYTD, ganancia: gananciaYTD },
-      fondo: { actual: totalCajaARS, meta: metaFondo }, // Mostramos el total real contra la meta
+      fondo: { actual: totalCajaARS, meta: metaFondo },
       mesActual: { ingresos: ingresosMes, costos: costosMes, resultado: resultadoMes },
       kpis: { ratioEquipo: 0, margenNeto: ingresosMes > 0 ? (resultadoMes/ingresosMes)*100 : 0, concentracion, minDias, fondoRatio: metaFondo > 0 ? (totalCajaARS/metaFondo)*100 : 0 }
     };
@@ -196,7 +201,7 @@ export default function Dashboard() {
   if (recuperos && recuperos.length > 0) alertas.push({ type: 'amber', title: 'Recuperos pendientes', desc: `Tenés ${recuperos.length} recuperos esperando cobranza.` });
 
   return (
-    <div className="space-y-10 animate-in fade-in duration-700 pb-12">
+    <div className="space-y-8 animate-in fade-in duration-700 pb-12">
       <header className="flex flex-col md:flex-row md:items-center justify-between gap-6">
         <div>
           <h1 className="text-4xl font-display font-bold text-jengibre-dark">Hola, Equipo 👋</h1>
@@ -209,28 +214,28 @@ export default function Dashboard() {
         </div>
       </header>
 
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6">
         <StatCard title="Proyección Anual (ARR)" value={formatARS(stats.arr)} sub="Facturación bruta proyectada" icon={TrendingUp} colorClass="text-blue-600" bgClass="bg-blue-50" />
         <StatCard title="Ticket Promedio" value={formatARS(stats.ticketPromedio)} sub="Ingreso base por cliente" icon={Users} colorClass="text-amber-600" bgClass="bg-amber-50" />
         <StatCard title="Ganancia Real Acum." value={formatARS(stats.ytd.ganancia)} sub="Ingresos - Egresos (Año actual)" icon={Sparkles} colorClass="text-emerald-600" bgClass="bg-emerald-50" />
         <StatCard title="Fondo de Emergencia" value={formatARS(stats.fondo.actual)} sub={`Meta (6 meses): ${formatARS(stats.fondo.meta)}`} icon={ShieldCheck} colorClass="text-indigo-600" bgClass="bg-indigo-50" />
       </div>
 
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-10">
-        <div className="col-span-1 lg:col-span-2 space-y-10">
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
+        <div className="lg:col-span-2 space-y-8">
           
-          <section>
-            <h2 className="text-sm font-bold uppercase tracking-widest text-gray-400 mb-5 flex items-center gap-2">
+          <section className="bg-white border border-jengibre-border rounded-3xl p-6 shadow-sm">
+            <h2 className="text-sm font-bold uppercase tracking-widest text-gray-400 mb-6 flex items-center gap-2">
               <Landmark size={16} /> Cuentas con mayor liquidez
             </h2>
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               {Object.entries(stats.saldos).sort((a,b) => b[1] - a[1]).slice(0, 4).map(([nombre, monto]) => (
-                <div key={nombre} className="bg-white border border-jengibre-border p-5 rounded-2xl flex justify-between items-center group hover:border-jengibre-primary transition-colors">
-                  <div>
-                    <p className="text-[10px] font-bold text-gray-400 uppercase tracking-widest mb-1">{nombre}</p>
-                    <p className="text-xl font-mono font-bold text-jengibre-dark">{formatARS(monto)}</p>
+                <div key={nombre} className="bg-gray-50 border border-gray-100 p-5 rounded-2xl flex justify-between items-center group hover:border-jengibre-primary hover:bg-white transition-all">
+                  <div className="min-w-0">
+                    <p className="text-[10px] font-bold text-gray-400 uppercase tracking-widest mb-1 truncate">{nombre}</p>
+                    <p className="text-xl font-mono font-bold text-jengibre-dark truncate">{formatARS(monto)}</p>
                   </div>
-                  <div className="p-2 rounded-xl bg-gray-50 text-gray-300 group-hover:bg-jengibre-cream group-hover:text-jengibre-primary transition-colors">
+                  <div className="p-2 rounded-xl bg-white text-gray-300 group-hover:bg-jengibre-cream group-hover:text-jengibre-primary transition-colors shadow-sm">
                     <Wallet size={20} />
                   </div>
                 </div>
@@ -238,8 +243,8 @@ export default function Dashboard() {
             </div>
           </section>
 
-          <section>
-            <h2 className="text-sm font-bold uppercase tracking-widest text-gray-400 mb-5 flex items-center gap-2">
+          <section className="bg-white border border-jengibre-border rounded-3xl p-6 shadow-sm">
+            <h2 className="text-sm font-bold uppercase tracking-widest text-gray-400 mb-6 flex items-center gap-2">
               <Sparkles size={16} /> Métricas de Control
             </h2>
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
@@ -251,18 +256,24 @@ export default function Dashboard() {
           </section>
         </div>
 
-        <div className="col-span-1 space-y-8">
+        <div className="space-y-8">
           <section className="bg-jengibre-dark text-white rounded-3xl p-8 shadow-xl relative overflow-hidden">
             <div className="absolute top-0 right-0 p-4 opacity-10"><TrendingUp size={80} /></div>
             <h2 className="text-xl font-display font-bold mb-6 relative z-10">Cierre del Mes</h2>
             <div className="space-y-6 relative z-10">
-              <div>
-                <p className="text-[10px] font-bold text-gray-400 uppercase tracking-widest mb-1">Ingresos Cobrados</p>
-                <p className="text-2xl font-mono font-bold text-jengibre-secondary">{formatARS(stats.mesActual.ingresos)}</p>
+              <div className="flex justify-between items-end">
+                <div>
+                  <p className="text-[10px] font-bold text-gray-400 uppercase tracking-widest mb-1">Ingresos Cobrados</p>
+                  <p className="text-2xl font-mono font-bold text-jengibre-secondary">{formatARS(stats.mesActual.ingresos)}</p>
+                </div>
+                <ArrowDownRight className="text-jengibre-secondary mb-1" size={20} />
               </div>
-              <div>
-                <p className="text-[10px] font-bold text-gray-400 uppercase tracking-widest mb-1">Costos Pagados</p>
-                <p className="text-2xl font-mono font-bold text-red-400">{formatARS(stats.mesActual.costos)}</p>
+              <div className="flex justify-between items-end">
+                <div>
+                  <p className="text-[10px] font-bold text-gray-400 uppercase tracking-widest mb-1">Costos Pagados</p>
+                  <p className="text-2xl font-mono font-bold text-red-400">{formatARS(stats.mesActual.costos)}</p>
+                </div>
+                <ArrowUpRight className="text-red-400 mb-1" size={20} />
               </div>
               <div className="pt-4 border-t border-white/10">
                 <p className="text-[10px] font-bold text-gray-400 uppercase tracking-widest mb-1">Resultado Neto</p>
@@ -273,14 +284,14 @@ export default function Dashboard() {
             </div>
           </section>
 
-          <section>
+          <section className="bg-white border border-jengibre-border rounded-3xl p-6 shadow-sm">
             <h2 className="text-sm font-bold uppercase tracking-widest text-gray-400 mb-4 flex items-center gap-2">
               <AlertCircle size={16} /> Centro de Atención
             </h2>
             <div className="space-y-3">
               {alertas.length === 0 ? (
                 <div className="bg-emerald-50 border border-emerald-100 p-5 rounded-2xl flex items-start gap-4">
-                  <div className="bg-emerald-500 text-white p-1.5 rounded-full"><CheckCircle2 size={16} /></div>
+                  <div className="bg-emerald-500 text-white p-1.5 rounded-full shrink-0"><CheckCircle2 size={16} /></div>
                   <div>
                     <p className="font-bold text-emerald-900 text-sm">¡Todo en orden!</p>
                     <p className="text-emerald-700 text-xs mt-1">No hay alertas críticas para hoy.</p>
@@ -291,7 +302,7 @@ export default function Dashboard() {
                   <div key={i} className={`bg-white border p-5 rounded-2xl flex items-start gap-4 shadow-sm ${
                     alerta.type === 'red' ? 'border-red-100' : 'border-amber-100'
                   }`}>
-                    <div className={`p-1.5 rounded-full ${alerta.type === 'red' ? 'bg-red-500 text-white' : 'bg-amber-500 text-white'}`}>
+                    <div className={`p-1.5 rounded-full shrink-0 ${alerta.type === 'red' ? 'bg-red-500 text-white' : 'bg-amber-500 text-white'}`}>
                       <AlertCircle size={16} />
                     </div>
                     <div>

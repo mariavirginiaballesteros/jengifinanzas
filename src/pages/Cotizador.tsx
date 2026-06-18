@@ -195,7 +195,7 @@ export default function Cotizador() {
 
   const copyToClipboard = () => {
     const text = `*Propuesta Comercial: ${nombre || 'Nuevo Proyecto'}*\n\n` +
-      `*Inversión Mensual Sugerida:* ${formatARS(costos.precioFinal)} + IVA\n` +
+      `*Inversión Mensual Sugerida:* ${formatARS(costos.precioFinal)}\n` +
       `*(Equivalente a ${formatUSD(costos.precioFinal / cotizacion)} USD)*\n\n` +
       `_Esta propuesta ha sido calculada en base a la asignación de recursos dedicados, costos operativos y estructura del equipo._`;
     
