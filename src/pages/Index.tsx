@@ -1,5 +1,5 @@
 import React, { useMemo } from 'react';
-import { formatARS } from '@/lib/utils';
+import { formatARS, parseFinancial, parseDescripcion, parseNotas } from '@/lib/utils';
 import { Plus, FileText, RefreshCw, AlertCircle, CheckCircle2, Landmark, TrendingUp, Users, Sparkles, ShieldCheck, ArrowRight, Wallet, ArrowUpRight, ArrowDownRight } from 'lucide-react';
 import { Link } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
@@ -97,8 +97,26 @@ export default function Dashboard() {
     }
   });
 
+  const { data: facturas } = useQuery({
+    queryKey: ['facturacion'],
+    queryFn: async () => {
+      const { data, error } = await supabase.from('facturacion').select('*');
+      if (error) throw error;
+      return data || [];
+    }
+  });
+
+  const { data: equipo } = useQuery({
+    queryKey: ['equipo'],
+    queryFn: async () => {
+      const { data, error } = await supabase.from('equipo').select('*').eq('activo', true);
+      if (error) throw error;
+      return data || [];
+    }
+  });
+
   const stats = useMemo(() => {
-    if (!movimientos || !clientes || !configRows) return null;
+    if (!movimientos || !clientes || !configRows || !facturas || !equipo) return null;
 
     const saldosCalc: Record<string, number> = {};
     const saldosIniciales = configSaldos || {};
@@ -117,6 +135,7 @@ export default function Dashboard() {
     const now = new Date();
     const currentMonthPrefix = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
     const currentYearPrefix = now.getFullYear().toString();
+    const hoyStr = now.toISOString().split('T')[0];
 
     movimientos.forEach(m => {
       if (m.cuenta === 'IVA') return;
@@ -152,6 +171,37 @@ export default function Dashboard() {
     });
 
     const totalCajaARS = Object.values(saldosCalc).reduce((a, b) => a + b, 0);
+    
+    // Lógica de Monto Real Hoy (Sincronizada con Salud Financiera)
+    const ingresosPendientes = facturas
+      .filter(f => f.estado !== 'pagado' && f.mes <= hoyStr)
+      .reduce((acc, f) => {
+        const desc = parseDescripcion(f.descripcion);
+        const final = Number(f.monto_final || f.monto_base || 0);
+        const cobrado = desc.monto_pagado + desc.retencion_ganancias + desc.retencion_iva + desc.monto_retenido;
+        return parseFinancial(acc + (final - cobrado));
+      }, 0);
+
+    const totalEquipoMes = equipo.reduce((acc, e) => {
+      const notas = parseNotas(e.notas);
+      let totalMiembro = parseFinancial(e.honorario_mensual || 0);
+      Object.entries(notas.asignaciones).forEach(([cId, monto]) => {
+        if (clientes.find(c => c.id === cId)) totalMiembro = parseFinancial(totalMiembro + Number(monto));
+      });
+      return parseFinancial(acc + totalMiembro);
+    }, 0);
+
+    const pagadoEquipoMes = movimientos
+      .filter(m =>
+        m.tipo === 'egreso' &&
+        m.concepto === 'Honorarios Equipo' &&
+        m.fecha?.startsWith(currentMonthPrefix)
+      )
+      .reduce((acc, m) => parseFinancial(acc + Number(m.monto)), 0);
+
+    const egresosEquipoPendientes = Math.max(0, parseFinancial(totalEquipoMes - pagadoEquipoMes));
+    const montoRealHoy = parseFinancial(totalCajaARS + ingresosPendientes - egresosEquipoPendientes);
+
     const gananciaYTD = ingresosYTD - costosYTD;
     const resultadoMes = ingresosMes - costosMes;
 
@@ -187,11 +237,11 @@ export default function Dashboard() {
       arr,
       ticketPromedio,
       ytd: { ingresos: ingresosYTD, costos: costosYTD, ganancia: gananciaYTD },
-      fondo: { actual: totalCajaARS, meta: metaFondo },
+      fondo: { actual: montoRealHoy, meta: metaFondo }, // Usamos montoRealHoy para el fondo
       mesActual: { ingresos: ingresosMes, costos: costosMes, resultado: resultadoMes },
-      kpis: { ratioEquipo: 0, margenNeto: ingresosMes > 0 ? (resultadoMes/ingresosMes)*100 : 0, concentracion, minDias, fondoRatio: metaFondo > 0 ? (totalCajaARS/metaFondo)*100 : 0 }
+      kpis: { ratioEquipo: 0, margenNeto: ingresosMes > 0 ? (resultadoMes/ingresosMes)*100 : 0, concentracion, minDias, fondoRatio: metaFondo > 0 ? (montoRealHoy/metaFondo)*100 : 0 }
     };
-  }, [movimientos, configSaldos, clientes, cotizacion, configRows]);
+  }, [movimientos, configSaldos, clientes, cotizacion, configRows, facturas, equipo]);
 
   if (!stats) return <div className="p-12 text-center">Cargando dashboard...</div>;
 

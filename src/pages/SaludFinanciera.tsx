@@ -208,10 +208,11 @@ export default function SaludFinanciera() {
     });
 
     const mesActualKey = getLocalDateString().substring(0, 7);
+    const hoyStr = getLocalDateString();
     
-    // 1. Facturas pendientes: Todas las que no están pagadas (incluye meses anteriores)
+    // 1. Facturas pendientes: Solo las del mes actual o anteriores que no están pagadas
     const ingresosPendientes = facturas
-      .filter(f => f.estado !== 'pagado')
+      .filter(f => f.estado !== 'pagado' && f.mes <= hoyStr)
       .reduce((acc, f) => {
         const desc = parseDescripcion(f.descripcion);
         const final = Number(f.monto_final || f.monto_base || 0);
@@ -459,7 +460,7 @@ export default function SaludFinanciera() {
                     <span className="font-mono font-bold">{formatARS(totalCajaARS)}</span>
                   </div>
                   <div className="flex items-center justify-between text-[11px] text-green-600 border-b border-gray-200 pb-1">
-                    <span>(+) Facturas por Cobrar:</span>
+                    <span>(+) Facturas (Vencidas + Mes Actual):</span>
                     <span className="font-mono font-bold">{formatARS(ingresosPendientes)}</span>
                   </div>
                   <div className="flex items-center justify-between text-[11px] text-red-500">
