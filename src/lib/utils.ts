@@ -68,7 +68,7 @@ export function parseFinancial(value: any): number {
  * Centraliza el parseo de la columna 'notas' que suele ser un JSON.
  */
 export function parseNotas(notasStr: string | null) {
-  const defaultNotas = { texto: '', moneda: 'ARS', asignaciones: {} as Record<string, number> };
+  const defaultNotas = { texto: '', moneda: 'ARS', telefono: '', asignaciones: {} as Record<string, number> };
   if (!notasStr) return defaultNotas;
   
   try {
@@ -77,6 +77,7 @@ export function parseNotas(notasStr: string | null) {
       return {
         texto: parsed.texto || '',
         moneda: parsed.moneda || 'ARS',
+        telefono: parsed.telefono || '',
         asignaciones: parsed.asignaciones || {}
       };
     }

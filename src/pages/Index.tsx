@@ -1,45 +1,54 @@
 import React, { useMemo } from 'react';
-import { formatARS, parseFinancial, parseDescripcion, parseNotas } from '@/lib/utils';
-import { Plus, FileText, RefreshCw, AlertCircle, CheckCircle2, Landmark, TrendingUp, Users, Sparkles, ShieldCheck, ArrowRight, Wallet, ArrowUpRight, ArrowDownRight } from 'lucide-react';
+import { formatARS, parseFinancial, parseDescripcion, parseNotas, formatUSD } from '@/lib/utils';
+import { Plus, FileText, RefreshCw, AlertCircle, CheckCircle2, Landmark, TrendingUp, Users, Sparkles, ShieldCheck, ArrowRight, Wallet, ArrowUpRight, ArrowDownRight, DollarSign } from 'lucide-react';
 import { Link } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
 import { supabase } from '@/integrations/supabase/client';
 import { useCotizacionOficial } from '@/hooks/useCotizacion';
 
-const StatCard = ({ title, value, sub, icon: Icon, colorClass = "text-blue-600", bgClass = "bg-blue-50" }: { title: string, value: string, sub?: string, icon: any, colorClass?: string, bgClass?: string }) => (
-  <div className="bg-white border border-jengibre-border p-6 rounded-3xl shadow-sm hover:shadow-md transition-all group relative overflow-hidden">
-    <div className={`absolute -right-4 -top-4 opacity-10 group-hover:scale-110 transition-transform ${colorClass}`}>
-      <Icon size={100} />
+const StatCard = ({ title, value, sub, icon: Icon, colorClass = "text-blue-600", bgClass = "bg-blue-50", isUSD = false }: { title: string, value: string, sub?: string, icon: any, colorClass?: string, bgClass?: string, isUSD?: boolean }) => (
+  <div className="bg-white border border-jengibre-border p-6 rounded-[2rem] shadow-sm hover:shadow-md transition-all group relative overflow-hidden">
+    <div className={`absolute -right-4 -top-4 opacity-5 group-hover:scale-110 transition-transform ${colorClass}`}>
+      <Icon size={120} />
     </div>
     <div className="relative z-10">
-      <div className="flex items-center gap-2 mb-3">
-        <div className={`p-2 rounded-xl ${bgClass} ${colorClass}`}>
-          <Icon size={18} />
+      <div className="flex items-center gap-2 mb-4">
+        <div className={`p-2.5 rounded-2xl ${bgClass} ${colorClass} shadow-sm`}>
+          <Icon size={20} />
         </div>
-        <h3 className="text-[10px] font-bold uppercase tracking-widest text-gray-400">{title}</h3>
+        <h3 className="text-[11px] font-black uppercase tracking-[0.15em] text-gray-400">{title}</h3>
       </div>
-      <p className="text-2xl font-mono font-bold text-jengibre-dark truncate">{value}</p>
-      {sub && <p className="text-[10px] text-gray-400 mt-2 font-medium truncate">{sub}</p>}
+      <div className="flex items-baseline gap-1">
+        <p className={`text-3xl font-mono font-black tracking-tighter ${isUSD ? 'text-blue-700' : 'text-jengibre-dark'}`}>
+          {value}
+        </p>
+      </div>
+      {sub && (
+        <div className="flex items-center gap-1.5 mt-3">
+          <div className="h-px w-4 bg-gray-200"></div>
+          <p className="text-[11px] text-gray-400 font-bold uppercase tracking-wider">{sub}</p>
+        </div>
+      )}
     </div>
   </div>
 );
 
 const SemaforoKPI = ({ title, value, status, label }: { title: string, value: string, status: 'ok' | 'alert' | 'danger', label: string }) => {
   const colors = { 
-    ok: { dot: 'bg-jengibre-green', text: 'text-jengibre-green', bg: 'bg-jengibre-green/5' }, 
-    alert: { dot: 'bg-jengibre-amber', text: 'text-jengibre-amber', bg: 'bg-jengibre-amber/5' }, 
-    danger: { dot: 'bg-jengibre-red', text: 'text-jengibre-red', bg: 'bg-jengibre-red/5' } 
+    ok: { dot: 'bg-jengibre-green', text: 'text-jengibre-green', bg: 'bg-jengibre-green/10' }, 
+    alert: { dot: 'bg-jengibre-amber', text: 'text-jengibre-amber', bg: 'bg-jengibre-amber/10' }, 
+    danger: { dot: 'bg-jengibre-red', text: 'text-jengibre-red', bg: 'bg-jengibre-red/10' } 
   };
   const current = colors[status];
   
   return (
-    <div className={`border border-jengibre-border p-4 rounded-2xl flex items-center gap-4 bg-white transition-all hover:border-gray-300 shadow-sm`}>
-      <div className={`w-3 h-3 rounded-full shrink-0 animate-pulse ${current.dot}`} />
+    <div className={`border border-jengibre-border p-5 rounded-[1.5rem] flex items-center gap-5 bg-white transition-all hover:border-gray-300 shadow-sm group`}>
+      <div className={`w-4 h-4 rounded-full shrink-0 shadow-inner ${current.dot} group-hover:scale-110 transition-transform`} />
       <div className="flex-1 min-w-0">
-        <p className="text-[10px] font-bold text-gray-400 uppercase tracking-widest mb-1 truncate">{title}</p>
-        <div className="flex items-baseline gap-2">
-          <span className="text-lg font-mono font-bold text-gray-900 truncate">{value}</span>
-          <span className={`text-[9px] font-bold px-1.5 py-0.5 rounded whitespace-nowrap ${current.bg} ${current.text}`}>{label}</span>
+        <p className="text-[10px] font-black text-gray-400 uppercase tracking-widest mb-1.5 truncate">{title}</p>
+        <div className="flex items-baseline gap-3">
+          <span className="text-2xl font-mono font-black text-gray-900 tracking-tighter truncate">{value}</span>
+          <span className={`text-[10px] font-black px-2 py-1 rounded-lg whitespace-nowrap uppercase tracking-tighter ${current.bg} ${current.text}`}>{label}</span>
         </div>
       </div>
     </div>
@@ -172,14 +181,13 @@ export default function Dashboard() {
 
     const totalCajaARS = Object.values(saldosCalc).reduce((a, b) => a + b, 0);
     
-    // Lógica de Monto Real Hoy (Sincronizada con Salud Financiera)
     const ingresosPendientes = facturas
       .filter(f => f.estado !== 'pagado' && f.mes <= hoyStr)
       .reduce((acc, f) => {
         const desc = parseDescripcion(f.descripcion);
         const final = Number(f.monto_final || f.monto_base || 0);
         const cobrado = desc.monto_pagado + desc.retencion_ganancias + desc.retencion_iva + desc.monto_retenido;
-        return parseFinancial(acc + (final - cobrado));
+        return acc + (final - cobrado);
       }, 0);
 
     const totalEquipoMes = equipo.reduce((acc, e) => {
@@ -188,7 +196,7 @@ export default function Dashboard() {
       Object.entries(notas.asignaciones).forEach(([cId, monto]) => {
         if (clientes.find(c => c.id === cId)) totalMiembro = parseFinancial(totalMiembro + Number(monto));
       });
-      return parseFinancial(acc + totalMiembro);
+      return acc + totalMiembro;
     }, 0);
 
     const pagadoEquipoMes = movimientos
@@ -197,7 +205,7 @@ export default function Dashboard() {
         m.concepto === 'Honorarios Equipo' &&
         m.fecha?.startsWith(currentMonthPrefix)
       )
-      .reduce((acc, m) => parseFinancial(acc + Number(m.monto)), 0);
+      .reduce((acc, m) => acc + Number(m.monto), 0);
 
     const egresosEquipoPendientes = Math.max(0, parseFinancial(totalEquipoMes - pagadoEquipoMes));
     const montoRealHoy = parseFinancial(totalCajaARS + ingresosPendientes - egresosEquipoPendientes);
@@ -237,7 +245,7 @@ export default function Dashboard() {
       arr,
       ticketPromedio,
       ytd: { ingresos: ingresosYTD, costos: costosYTD, ganancia: gananciaYTD },
-      fondo: { actual: montoRealHoy, meta: metaFondo }, // Usamos montoRealHoy para el fondo
+      fondo: { actual: montoRealHoy, meta: metaFondo },
       mesActual: { ingresos: ingresosMes, costos: costosMes, resultado: resultadoMes },
       kpis: { ratioEquipo: 0, margenNeto: ingresosMes > 0 ? (resultadoMes/ingresosMes)*100 : 0, concentracion, minDias, fondoRatio: metaFondo > 0 ? (montoRealHoy/metaFondo)*100 : 0 }
     };
@@ -251,15 +259,15 @@ export default function Dashboard() {
   if (recuperos && recuperos.length > 0) alertas.push({ type: 'amber', title: 'Recuperos pendientes', desc: `Tenés ${recuperos.length} recuperos esperando cobranza.` });
 
   return (
-    <div className="space-y-8 animate-in fade-in duration-700 pb-12">
+    <div className="space-y-10 animate-in fade-in duration-700 pb-12">
       <header className="flex flex-col md:flex-row md:items-center justify-between gap-6">
         <div>
-          <h1 className="text-4xl font-display font-bold text-jengibre-dark">Hola, Equipo 👋</h1>
-          <p className="text-gray-500 mt-1 font-medium">Resumen ejecutivo de la salud financiera de Jengibre.</p>
+          <h1 className="text-5xl font-black tracking-tighter text-jengibre-dark">Hola, Equipo 👋</h1>
+          <p className="text-gray-500 mt-2 font-bold uppercase tracking-widest text-xs">Resumen ejecutivo de la salud financiera de Jengibre.</p>
         </div>
         <div className="flex gap-3">
-          <Link to="/caja" className="bg-jengibre-primary hover:bg-[#a64120] text-white px-6 py-3 rounded-2xl font-bold flex items-center gap-2 transition-all shadow-lg shadow-jengibre-primary/20 active:scale-95">
-            <Plus size={20} /> Cargar movimiento
+          <Link to="/caja" className="bg-jengibre-primary hover:bg-[#a64120] text-white px-8 py-4 rounded-2xl font-black uppercase tracking-widest text-xs flex items-center gap-3 transition-all shadow-xl shadow-jengibre-primary/20 active:scale-95">
+            <Plus size={18} /> Cargar movimiento
           </Link>
         </div>
       </header>
@@ -271,33 +279,38 @@ export default function Dashboard() {
         <StatCard title="Fondo de Emergencia" value={formatARS(stats.fondo.actual)} sub={`Meta (6 meses): ${formatARS(stats.fondo.meta)}`} icon={ShieldCheck} colorClass="text-indigo-600" bgClass="bg-indigo-50" />
       </div>
 
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
-        <div className="lg:col-span-2 space-y-8">
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-10">
+        <div className="lg:col-span-2 space-y-10">
           
-          <section className="bg-white border border-jengibre-border rounded-3xl p-6 shadow-sm">
-            <h2 className="text-sm font-bold uppercase tracking-widest text-gray-400 mb-6 flex items-center gap-2">
-              <Landmark size={16} /> Cuentas con mayor liquidez
-            </h2>
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+          <section className="bg-white border border-jengibre-border rounded-[2.5rem] p-8 shadow-sm">
+            <div className="flex items-center justify-between mb-8">
+              <h2 className="text-xs font-black uppercase tracking-[0.2em] text-gray-400 flex items-center gap-3">
+                <Landmark size={18} className="text-jengibre-primary" /> Cuentas con mayor liquidez
+              </h2>
+              <Link to="/configuracion" className="text-[10px] font-black uppercase tracking-widest text-jengibre-primary hover:underline">Gestionar Cuentas</Link>
+            </div>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-5">
               {Object.entries(stats.saldos).sort((a,b) => b[1] - a[1]).slice(0, 4).map(([nombre, monto]) => (
-                <div key={nombre} className="bg-gray-50 border border-gray-100 p-5 rounded-2xl flex justify-between items-center group hover:border-jengibre-primary hover:bg-white transition-all">
+                <div key={nombre} className="bg-gray-50/50 border border-gray-100 p-6 rounded-[1.5rem] flex justify-between items-center group hover:border-jengibre-primary hover:bg-white transition-all shadow-sm">
                   <div className="min-w-0">
-                    <p className="text-[10px] font-bold text-gray-400 uppercase tracking-widest mb-1 truncate">{nombre}</p>
-                    <p className="text-xl font-mono font-bold text-jengibre-dark truncate">{formatARS(monto)}</p>
+                    <p className="text-[10px] font-black text-gray-400 uppercase tracking-widest mb-2 truncate">{nombre}</p>
+                    <p className={`text-2xl font-mono font-black tracking-tighter truncate ${nombre.includes('USD') ? 'text-blue-700' : 'text-jengibre-dark'}`}>
+                      {nombre.includes('USD') ? formatUSD(monto / cotizacion) : formatARS(monto)}
+                    </p>
                   </div>
-                  <div className="p-2 rounded-xl bg-white text-gray-300 group-hover:bg-jengibre-cream group-hover:text-jengibre-primary transition-colors shadow-sm">
-                    <Wallet size={20} />
+                  <div className="p-3 rounded-2xl bg-white text-gray-300 group-hover:bg-jengibre-cream group-hover:text-jengibre-primary transition-colors shadow-sm">
+                    <Wallet size={24} />
                   </div>
                 </div>
               ))}
             </div>
           </section>
 
-          <section className="bg-white border border-jengibre-border rounded-3xl p-6 shadow-sm">
-            <h2 className="text-sm font-bold uppercase tracking-widest text-gray-400 mb-6 flex items-center gap-2">
-              <Sparkles size={16} /> Métricas de Control
+          <section className="bg-white border border-jengibre-border rounded-[2.5rem] p-8 shadow-sm">
+            <h2 className="text-xs font-black uppercase tracking-[0.2em] text-gray-400 mb-8 flex items-center gap-3">
+              <Sparkles size={18} className="text-amber-500" /> Métricas de Control
             </h2>
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-5">
               <SemaforoKPI title="Concentración de Riesgo" value={`${stats.kpis.concentracion.toFixed(1)}%`} label={"Máx 30%"} status={stats.kpis.concentracion > 40 ? 'danger' : stats.kpis.concentracion > 30 ? 'alert' : 'ok'} />
               <SemaforoKPI title="Reserva de Seguridad" value={`${stats.kpis.fondoRatio.toFixed(0)}%`} label={"Meta 100%"} status={stats.kpis.fondoRatio < 30 ? 'danger' : stats.kpis.fondoRatio < 80 ? 'alert' : 'ok'} />
               <SemaforoKPI title="Margen Neto (Mes)" value={`${stats.kpis.margenNeto.toFixed(1)}%`} label={"Mín 25%"} status={stats.kpis.margenNeto < 10 ? 'danger' : stats.kpis.margenNeto < 25 ? 'alert' : 'ok'} />
@@ -307,57 +320,61 @@ export default function Dashboard() {
         </div>
 
         <div className="space-y-8">
-          <section className="bg-jengibre-dark text-white rounded-3xl p-8 shadow-xl relative overflow-hidden">
-            <div className="absolute top-0 right-0 p-4 opacity-10"><TrendingUp size={80} /></div>
-            <h2 className="text-xl font-display font-bold mb-6 relative z-10">Cierre del Mes</h2>
-            <div className="space-y-6 relative z-10">
-              <div className="flex justify-between items-end">
+          <section className="bg-jengibre-dark text-white rounded-[2.5rem] p-10 shadow-2xl relative overflow-hidden border border-white/5">
+            <div className="absolute -right-10 -top-10 p-4 opacity-10 rotate-12"><TrendingUp size={200} /></div>
+            <h2 className="text-xs font-black uppercase tracking-[0.3em] text-jengibre-secondary mb-10 relative z-10">Cierre del Mes</h2>
+            <div className="space-y-8 relative z-10">
+              <div className="flex justify-between items-end group">
                 <div>
-                  <p className="text-[10px] font-bold text-gray-400 uppercase tracking-widest mb-1">Ingresos Cobrados</p>
-                  <p className="text-2xl font-mono font-bold text-jengibre-secondary">{formatARS(stats.mesActual.ingresos)}</p>
+                  <p className="text-[10px] font-black text-gray-400 uppercase tracking-widest mb-2">Ingresos Cobrados</p>
+                  <p className="text-3xl font-mono font-black tracking-tighter text-jengibre-secondary group-hover:scale-105 transition-transform origin-left">{formatARS(stats.mesActual.ingresos)}</p>
                 </div>
-                <ArrowDownRight className="text-jengibre-secondary mb-1" size={20} />
+                <div className="p-2 rounded-xl bg-jengibre-secondary/10 text-jengibre-secondary mb-1">
+                  <ArrowDownRight size={20} />
+                </div>
               </div>
-              <div className="flex justify-between items-end">
+              <div className="flex justify-between items-end group">
                 <div>
-                  <p className="text-[10px] font-bold text-gray-400 uppercase tracking-widest mb-1">Costos Pagados</p>
-                  <p className="text-2xl font-mono font-bold text-red-400">{formatARS(stats.mesActual.costos)}</p>
+                  <p className="text-[10px] font-black text-gray-400 uppercase tracking-widest mb-2">Costos Pagados</p>
+                  <p className="text-3xl font-mono font-black tracking-tighter text-red-400 group-hover:scale-105 transition-transform origin-left">{formatARS(stats.mesActual.costos)}</p>
                 </div>
-                <ArrowUpRight className="text-red-400 mb-1" size={20} />
+                <div className="p-2 rounded-xl bg-red-400/10 text-red-400 mb-1">
+                  <ArrowUpRight size={20} />
+                </div>
               </div>
-              <div className="pt-4 border-t border-white/10">
-                <p className="text-[10px] font-bold text-gray-400 uppercase tracking-widest mb-1">Resultado Neto</p>
-                <p className={`text-3xl font-mono font-bold ${stats.mesActual.resultado < 0 ? 'text-red-400' : 'text-white'}`}>
+              <div className="pt-8 border-t border-white/10">
+                <p className="text-[10px] font-black text-gray-400 uppercase tracking-widest mb-3">Resultado Neto</p>
+                <p className={`text-5xl font-mono font-black tracking-tighter ${stats.mesActual.resultado < 0 ? 'text-red-400' : 'text-white'}`}>
                   {formatARS(stats.mesActual.resultado)}
                 </p>
               </div>
             </div>
           </section>
 
-          <section className="bg-white border border-jengibre-border rounded-3xl p-6 shadow-sm">
-            <h2 className="text-sm font-bold uppercase tracking-widest text-gray-400 mb-4 flex items-center gap-2">
-              <AlertCircle size={16} /> Centro de Atención
+          <section className="bg-white border border-jengibre-border rounded-[2.5rem] p-8 shadow-sm">
+            <h2 className="text-xs font-black uppercase tracking-[0.2em] text-gray-400 mb-6 flex items-center gap-3">
+              <AlertCircle size={18} className="text-jengibre-amber" /> Centro de Atención
             </h2>
-            <div className="space-y-3">
+            <div className="space-y-4">
               {alertas.length === 0 ? (
-                <div className="bg-emerald-50 border border-emerald-100 p-5 rounded-2xl flex items-start gap-4">
-                  <div className="bg-emerald-500 text-white p-1.5 rounded-full shrink-0"><CheckCircle2 size={16} /></div>
+                <div className="bg-emerald-50 border border-emerald-100 p-6 rounded-2xl flex items-start gap-5">
+                  <div className="bg-emerald-500 text-white p-2 rounded-xl shadow-lg shadow-emerald-500/20 shrink-0"><CheckCircle2 size={20} /></div>
                   <div>
-                    <p className="font-bold text-emerald-900 text-sm">¡Todo en orden!</p>
-                    <p className="text-emerald-700 text-xs mt-1">No hay alertas críticas para hoy.</p>
+                    <p className="font-black text-emerald-900 text-sm uppercase tracking-tight">¡Todo en orden!</p>
+                    <p className="text-emerald-700 text-xs mt-1 font-medium">No hay alertas críticas para hoy.</p>
                   </div>
                 </div>
               ) : (
                 alertas.map((alerta, i) => (
-                  <div key={i} className={`bg-white border p-5 rounded-2xl flex items-start gap-4 shadow-sm ${
+                  <div key={i} className={`bg-white border p-6 rounded-2xl flex items-start gap-5 shadow-sm transition-all hover:shadow-md ${
                     alerta.type === 'red' ? 'border-red-100' : 'border-amber-100'
                   }`}>
-                    <div className={`p-1.5 rounded-full shrink-0 ${alerta.type === 'red' ? 'bg-red-500 text-white' : 'bg-amber-500 text-white'}`}>
-                      <AlertCircle size={16} />
+                    <div className={`p-2 rounded-xl shadow-lg shrink-0 ${alerta.type === 'red' ? 'bg-red-500 text-white shadow-red-500/20' : 'bg-amber-500 text-white shadow-amber-500/20'}`}>
+                      <AlertCircle size={20} />
                     </div>
                     <div>
-                      <p className="font-bold text-gray-800 text-sm">{alerta.title}</p>
-                      <p className="text-gray-500 text-xs mt-1 leading-relaxed">{alerta.desc}</p>
+                      <p className="font-black text-gray-800 text-sm uppercase tracking-tight">{alerta.title}</p>
+                      <p className="text-gray-500 text-xs mt-1.5 leading-relaxed font-medium">{alerta.desc}</p>
                     </div>
                   </div>
                 ))
