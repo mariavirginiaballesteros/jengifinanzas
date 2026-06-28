@@ -1,8 +1,7 @@
 import React, { useMemo, useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { supabase } from '@/integrations/supabase/client';
-import { TipAlert } from '@/components/TipAlert';
-import { Wallet, ArrowUpRight, ArrowDownRight, Landmark, TrendingUp, Calendar, Info, ChevronDown, ChevronRight, Edit3, Save, X, AlertCircle, Sparkles, Target, Plus, Trash2 } from 'lucide-react';
+import { Wallet, ArrowUpRight, ArrowDownRight, Landmark, TrendingUp, Calendar, Info, ChevronDown, ChevronRight, Edit3, Save, X, AlertCircle, Sparkles, Target, Plus, Trash2, Loader2 } from 'lucide-react';
 import { formatARS, parseFinancial, parseNotas } from '@/lib/utils';
 import { useCotizacionOficial } from '@/hooks/useCotizacion';
 import { showSuccess, showError } from '@/utils/toast';
@@ -25,13 +24,10 @@ export default function Cashflow() {
 
   const [expandedMonth, setExpandedMonth] = useState<string | null>(null);
   const [editingMonth, setEditingMonth] = useState<string | null>(null);
-  
-  // Estado para el formulario de edición
   const [editIncomes, setEditIncomes] = useState<SimItem[]>([]);
   const [editExpenses, setEditExpenses] = useState<SimItem[]>([]);
 
-  // --- DATA FETCHING ---
-  const { data: movimientos } = useQuery({
+  const { data: movimientos, isLoading: loadingMov } = useQuery({
     queryKey: ['movimientos'],
     queryFn: async () => {
       const { data, error } = await supabase.from('movimientos').select('*');
@@ -40,7 +36,7 @@ export default function Cashflow() {
     }
   });
 
-  const { data: configSaldos } = useQuery({
+  const { data: configSaldos, isLoading: loadingSaldos } = useQuery({
     queryKey: ['configuracion', 'saldos_iniciales'],
     queryFn: async () => {
       const { data } = await supabase.from('configuracion').select('valor').eq('clave', 'saldos_iniciales').maybeSingle();
@@ -48,7 +44,7 @@ export default function Cashflow() {
     }
   });
 
-  const { data: configAdjustments } = useQuery({
+  const { data: configAdjustments, isLoading: loadingAdj } = useQuery({
     queryKey: ['configuracion', 'cashflow_adjustments_v3'],
     queryFn: async () => {
       const { data } = await supabase.from('configuracion').select('id, valor').eq('clave', 'cashflow_adjustments_v3').maybeSingle();
@@ -57,7 +53,7 @@ export default function Cashflow() {
     }
   });
 
-  const { data: facturas } = useQuery({
+  const { data: facturas, isLoading: loadingFact } = useQuery({
     queryKey: ['facturacion'],
     queryFn: async () => {
       const { data, error } = await supabase.from('facturacion').select('*');
@@ -66,7 +62,7 @@ export default function Cashflow() {
     }
   });
 
-  const { data: equipo } = useQuery({
+  const { data: equipo, isLoading: loadingEq } = useQuery({
     queryKey: ['equipo'],
     queryFn: async () => {
       const { data, error } = await supabase.from('equipo').select('*').eq('activo', true);
@@ -75,7 +71,7 @@ export default function Cashflow() {
     }
   });
 
-  const { data: clientes } = useQuery({
+  const { data: clientes, isLoading: loadingCli } = useQuery({
     queryKey: ['clientes'],
     queryFn: async () => {
       const { data, error } = await supabase.from('clientes').select('*').eq('estado', 'activo');
@@ -84,7 +80,7 @@ export default function Cashflow() {
     }
   });
 
-  const { data: configFijos } = useQuery({
+  const { data: configFijos, isLoading: loadingFijos } = useQuery({
     queryKey: ['configuracion', 'gastos_fijos_estimados'],
     queryFn: async () => {
       const { data } = await supabase.from('configuracion').select('valor').eq('clave', 'gastos_fijos_estimados').maybeSingle();
@@ -94,13 +90,11 @@ export default function Cashflow() {
 
   const gastosFijos = Number(configFijos?.valor || 0);
 
-  // --- MUTATIONS ---
   const saveAdjustmentMutation = useMutation({
     mutationFn: async ({ month, incomes, expenses }: { month: string, incomes: SimItem[], expenses: SimItem[] }) => {
       const currentValues = configAdjustments?.values || {};
       const newValues = { ...currentValues, [month]: { incomes, expenses } };
-      const payload = { clave: 'cashflow_adjustments_v3', valor: JSON.stringify(newValues), descripcion: 'Simulaciones detalladas de ingresos y egresos potenciales' };
-      
+      const payload = { clave: 'cashflow_adjustments_v3', valor: JSON.stringify(newValues), descripcion: 'Simulaciones de cashflow' };
       if (configAdjustments?.id) {
         const { error } = await supabase.from('configuracion').update(payload).eq('id', configAdjustments.id);
         if (error) throw error;
@@ -117,10 +111,8 @@ export default function Cashflow() {
     onError: (err: any) => showError(err.message)
   });
 
-  // --- LÓGICA DE PROYECCIÓN ---
   const projection = useMemo(() => {
     if (!movimientos || !configSaldos || !facturas || !clientes || !equipo) return [];
-
     let saldoActual = 0;
     Object.values(configSaldos).forEach(v => saldoActual = parseFinancial(saldoActual + Number(v)));
     movimientos.forEach(m => {
@@ -130,22 +122,16 @@ export default function Cashflow() {
       if (m.tipo === 'ingreso') saldoActual = parseFinancial(saldoActual + valor);
       else if (m.tipo === 'egreso') saldoActual = parseFinancial(saldoActual - valor);
     });
-
     const hoy = new Date();
     const meses = [];
     for (let i = 0; i <= (11 - hoy.getMonth()); i++) {
-      // Usamos el primer día del mes en la zona horaria local
       const d = new Date(hoy.getFullYear(), hoy.getMonth() + i, 1);
       meses.push(d);
     }
-
     let acumulado = saldoActual;
     const adjustments = configAdjustments?.values || {};
-
-    return meses.map((date, index) => {
+    return meses.map((date) => {
       const mesKey = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}`;
-      
-      // --- INGRESOS ---
       const ingresosDetalle: any[] = [];
       const facturasMes = facturas.filter(f => f.mes?.startsWith(mesKey) && f.estado !== 'pagado');
       facturasMes.forEach(f => {
@@ -153,7 +139,6 @@ export default function Cashflow() {
         const cli = clientes.find(c => c.id === f.cliente_id);
         ingresosDetalle.push({ nombre: cli?.nombre || 'Manual', monto, tipo: 'Factura Pendiente', isSim: false });
       });
-
       let clientesActivosCount = 0;
       if (facturasMes.length === 0) {
         clientes.forEach((c: any) => {
@@ -161,318 +146,184 @@ export default function Cashflow() {
           const inicioString = c.fecha_inicio ? c.fecha_inicio.substring(0, 7) : '0000-00';
           if (finString >= mesKey && inicioString <= mesKey) {
             const monto = parseFinancial(Number(c.monto_ars || 0) + (Number(c.monto_usd || 0) * cotizacion));
-            ingresosDetalle.push({ nombre: c.nombre, monto, tipo: 'Abono Estimado (MRR)', isSim: false });
+            ingresosDetalle.push({ nombre: c.nombre, monto, tipo: 'Abono Estimado', isSim: false });
             clientesActivosCount++;
           }
         });
       } else {
         clientesActivosCount = new Set(facturasMes.map(f => f.cliente_id)).size;
       }
-
-      // Sumar ingresos simulados
       const simIncomes = adjustments[mesKey]?.incomes || [];
-      simIncomes.forEach(item => {
-        ingresosDetalle.push({ nombre: item.label, monto: parseFinancial(item.amount), tipo: 'Simulación', isSim: true });
-      });
-
+      simIncomes.forEach(item => { ingresosDetalle.push({ nombre: item.label, monto: parseFinancial(item.amount), tipo: 'Simulación', isSim: true }); });
       const totalIngresos = parseFinancial(ingresosDetalle.reduce((acc, i) => acc + i.monto, 0));
-
-      // --- EGRESOS ---
       const egresosDetalle: any[] = [];
       let totalEquipo = 0;
       equipo.forEach(miembro => {
         const notasData = parseNotas(miembro.notas);
         let costoProyectos = 0;
-        const proyectosMiembro: string[] = [];
-
         Object.entries(notasData.asignaciones).forEach(([cId, monto]) => {
           const c = clientes.find((cl: any) => cl.id === cId);
           if (c && c.estado === 'activo') {
             const finString = c.fecha_fin ? c.fecha_fin.substring(0, 7) : '9999-99';
             const inicioString = c.fecha_inicio ? c.fecha_inicio.substring(0, 7) : '0000-00';
-            if (finString >= mesKey && inicioString <= mesKey) {
-              costoProyectos = parseFinancial(costoProyectos + Number(monto));
-              proyectosMiembro.push(c.nombre);
-            }
+            if (finString >= mesKey && inicioString <= mesKey) { costoProyectos = parseFinancial(costoProyectos + Number(monto)); }
           }
         });
-
         const totalMiembro = parseFinancial(Number(miembro.honorario_mensual) + costoProyectos);
         if (totalMiembro > 0) {
           totalEquipo = parseFinancial(totalEquipo + totalMiembro);
-          egresosDetalle.push({ nombre: miembro.nombre, monto: totalMiembro, detalle: `Base: ${formatARS(miembro.honorario_mensual)} + Proy: ${proyectosMiembro.join(', ') || '-'}`, isSim: false });
+          egresosDetalle.push({ nombre: miembro.nombre, monto: totalMiembro, isSim: false });
         }
       });
-
-      if (gastosFijos > 0) egresosDetalle.push({ nombre: 'Gastos Fijos Estimados', monto: parseFinancial(gastosFijos), detalle: 'Configuración general', isSim: false });
-
-      // Sumar egresos simulados
+      if (gastosFijos > 0) egresosDetalle.push({ nombre: 'Gastos Fijos', monto: parseFinancial(gastosFijos), isSim: false });
       const simExpenses = adjustments[mesKey]?.expenses || [];
-      simExpenses.forEach(item => {
-        egresosDetalle.push({ nombre: item.label, monto: parseFinancial(item.amount), detalle: 'Simulación', isSim: true });
-      });
-
+      simExpenses.forEach(item => { egresosDetalle.push({ nombre: item.label, monto: parseFinancial(item.amount), isSim: true }); });
       const totalEgresos = parseFinancial(totalEquipo + gastosFijos + simExpenses.reduce((acc, e) => acc + e.amount, 0));
-
       const netoMes = parseFinancial(totalIngresos - totalEgresos);
       acumulado = parseFinancial(acumulado + netoMes);
-
-      // Ticket Saludable
       const ingresoObjetivo = parseFinancial(totalEgresos / 0.75);
       const ticketSaludable = clientesActivosCount > 0 ? parseFinancial(ingresoObjetivo / clientesActivosCount) : 0;
-
-      return {
-        key: mesKey,
-        label: date.toLocaleDateString('es-AR', { month: 'long', year: 'numeric' }),
-        ingresos: totalIngresos,
-        ingresosDetalle,
-        egresos: totalEgresos,
-        egresosDetalle,
-        neto: netoMes,
-        saldoFinal: acumulado,
-        ticketSaludable,
-        clientesActivosCount,
-        hasSim: simIncomes.length > 0 || simExpenses.length > 0
-      };
+      return { key: mesKey, label: date.toLocaleDateString('es-AR', { month: 'long', year: 'numeric' }), ingresos: totalIngresos, ingresosDetalle, egresos: totalEgresos, egresosDetalle, neto: netoMes, saldoFinal: acumulado, ticketSaludable, clientesActivosCount, hasSim: simIncomes.length > 0 || simExpenses.length > 0 };
     });
   }, [movimientos, configSaldos, facturas, clientes, equipo, gastosFijos, cotizacion, configAdjustments]);
 
-  const saldoHoy = projection[0]?.saldoFinal - projection[0]?.neto || 0;
+  const isLoading = loadingMov || loadingSaldos || loadingAdj || loadingFact || loadingEq || loadingCli || loadingFijos;
 
-  // --- HANDLERS FORMULARIO ---
-  const handleStartEdit = (item: any) => {
-    const adj = configAdjustments?.values[item.key] || { incomes: [], expenses: [] };
-    setEditIncomes(adj.incomes || []);
-    setEditExpenses(adj.expenses || []);
-    setEditingMonth(item.key);
-  };
-
-  const handleSaveAdjustment = () => {
-    if (!editingMonth) return;
-    saveAdjustmentMutation.mutate({ 
-      month: editingMonth, 
-      incomes: editIncomes, 
-      expenses: editExpenses 
-    });
-  };
-
-  const addSimItem = (type: 'income' | 'expense') => {
-    const newItem = { id: crypto.randomUUID(), label: '', amount: 0 };
-    if (type === 'income') setEditIncomes([...editIncomes, newItem]);
-    else setEditExpenses([...editExpenses, newItem]);
-  };
-
-  const removeSimItem = (type: 'income' | 'expense', id: string) => {
-    if (type === 'income') setEditIncomes(editIncomes.filter(i => i.id !== id));
-    else setEditExpenses(editExpenses.filter(i => i.id !== id));
-  };
-
-  const updateSimItem = (type: 'income' | 'expense', id: string, field: 'label' | 'amount', value: any) => {
-    const setter = type === 'income' ? setEditIncomes : setEditExpenses;
-    const list = type === 'income' ? editIncomes : editExpenses;
-    setter(list.map(item => item.id === id ? { ...item, [field]: field === 'amount' ? Number(value) : value } : item));
-  };
+  if (isLoading) return <div className="flex justify-center py-32"><Loader2 className="w-12 h-12 text-slate-200 animate-spin" /></div>;
 
   return (
-    <div className="animate-in fade-in duration-500 pb-12 w-full">
-      <header className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-8">
+    <div className="animate-in fade-in duration-700 pb-20">
+      <header className="flex flex-col sm:flex-row sm:items-center justify-between gap-6 mb-12">
         <div>
-          <h1 className="text-3xl font-display font-bold text-jengibre-dark flex items-center gap-3">
-            <Wallet className="text-jengibre-primary" size={32} />
-            Cashflow Proyectado
-          </h1>
-          <p className="text-gray-600 mt-1">Simulá escenarios de crecimiento cargando múltiples ingresos y egresos potenciales.</p>
+          <h1 className="text-4xl font-bold tracking-tight text-slate-900">Cashflow Proyectado</h1>
+          <p className="text-slate-500 mt-1 font-medium">Análisis de liquidez futura y simulaciones.</p>
         </div>
-        <div className="bg-white border border-jengibre-border p-4 rounded-2xl shadow-sm text-center min-w-[200px]">
-          <p className="text-[10px] font-bold text-gray-400 uppercase tracking-widest mb-1">Saldo Real Hoy</p>
-          <p className="text-2xl font-mono font-bold text-jengibre-dark">{formatARS(saldoHoy)}</p>
+        <div className="bg-white border border-slate-200 p-6 rounded-[2rem] shadow-sm text-center min-w-[240px]">
+          <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-1">Saldo Consolidado Hoy</p>
+          <p className="text-2xl font-bold text-slate-900 tracking-tight">{formatARS(projection[0]?.saldoFinal - projection[0]?.neto || 0)}</p>
         </div>
       </header>
 
-      <TipAlert id="cashflow_multi_sim" title="💡 Simulaciones Detalladas">
-        Ahora podés cargar varios ingresos potenciales por mes. Por ejemplo: "Cliente Nuevo A" por $300k y "Renovación Cliente B" por $100k extra. Todo se suma a la proyección final.
-      </TipAlert>
-
-      <div className="bg-white border border-jengibre-border rounded-2xl overflow-hidden shadow-sm mb-8">
-        <div className="bg-gray-50 px-6 py-4 border-b border-gray-100 flex items-center justify-between">
-          <h2 className="font-display font-bold text-lg text-gray-800 flex items-center gap-2">
-            <Calendar size={20} className="text-jengibre-primary" /> Cronograma de Liquidez
-          </h2>
-        </div>
-        
+      <div className="bg-white border border-slate-200 rounded-[2.5rem] overflow-hidden shadow-sm">
         <div className="overflow-x-auto">
-          <table className="w-full text-left text-sm border-collapse">
+          <table className="w-full text-left border-collapse">
             <thead>
-              <tr className="bg-gray-50/50 text-gray-500 uppercase tracking-wider text-[10px] font-bold border-b border-gray-100">
-                <th className="px-6 py-4 w-10"></th>
-                <th className="px-6 py-4">Mes</th>
-                <th className="px-6 py-4 text-right">Ingresos (Total)</th>
-                <th className="px-6 py-4 text-right">Egresos (Total)</th>
-                <th className="px-6 py-4 text-right">Neto Mes</th>
-                <th className="px-6 py-4 text-right bg-jengibre-cream/20">Saldo Final</th>
-                <th className="px-6 py-4 text-center w-20">Simular</th>
+              <tr className="bg-slate-50/50 text-slate-400 text-[10px] font-bold uppercase tracking-[0.15em] border-b border-slate-100">
+                <th className="px-8 py-5">Mes</th>
+                <th className="px-8 py-5 text-right">Ingresos</th>
+                <th className="px-8 py-5 text-right">Egresos</th>
+                <th className="px-8 py-5 text-right">Neto</th>
+                <th className="px-8 py-5 text-right">Saldo Final</th>
+                <th className="px-8 py-5 text-center">Acciones</th>
               </tr>
             </thead>
             <tbody>
-              {projection.map((item, i) => {
-                const isExpanded = expandedMonth === item.key;
-                const isEditing = editingMonth === item.key;
-                const isRed = item.neto < 0;
-
-                return (
-                  <React.Fragment key={item.key}>
-                    <tr 
-                      className={`border-b border-gray-50 hover:bg-gray-50 transition-colors cursor-pointer ${i === 0 ? 'bg-blue-50/30' : ''}`}
-                      onClick={() => setExpandedMonth(isExpanded ? null : item.key)}
-                    >
-                      <td className="px-6 py-5 text-gray-400">
-                        {isExpanded ? <ChevronDown size={18} /> : <ChevronRight size={18} />}
-                      </td>
-                      <td className="px-6 py-5 font-bold text-gray-900 capitalize">
-                        {item.label}
-                        {item.hasSim && <span className="ml-2 text-[9px] bg-blue-100 text-blue-700 px-1.5 py-0.5 rounded-full uppercase font-bold">Simulado</span>}
-                      </td>
-                      <td className="px-6 py-5 text-right font-mono text-green-600 font-bold">{formatARS(item.ingresos)}</td>
-                      <td className="px-6 py-5 text-right font-mono text-red-500 font-bold">{formatARS(item.egresos)}</td>
-                      <td className={`px-6 py-5 text-right font-mono font-bold ${isRed ? 'text-red-700' : 'text-green-700'}`}>
-                        {item.neto >= 0 ? '+' : ''}{formatARS(item.neto)}
-                      </td>
-                      <td className="px-6 py-5 text-right font-mono font-bold text-lg text-jengibre-dark bg-jengibre-cream/10">
-                        {formatARS(item.saldoFinal)}
-                      </td>
-                      <td className="px-6 py-5 text-center" onClick={(e) => e.stopPropagation()}>
-                        <button onClick={() => handleStartEdit(item)} className="p-2 text-gray-400 hover:text-jengibre-primary hover:bg-jengibre-cream rounded-lg transition-colors">
-                          <Edit3 size={18} />
-                        </button>
+              {projection.map((item) => (
+                <React.Fragment key={item.key}>
+                  <tr className="border-b border-slate-50 hover:bg-slate-50/50 transition-colors group cursor-pointer" onClick={() => setExpandedMonth(expandedMonth === item.key ? null : item.key)}>
+                    <td className="px-8 py-6">
+                      <div className="flex items-center gap-3">
+                        {expandedMonth === item.key ? <ChevronDown size={16} className="text-slate-400" /> : <ChevronRight size={16} className="text-slate-400" />}
+                        <p className="text-sm font-bold text-slate-900 capitalize">{item.label}</p>
+                        {item.hasSim && <span className="px-2 py-0.5 rounded-full bg-blue-50 text-blue-600 text-[8px] font-bold uppercase">Simulado</span>}
+                      </div>
+                    </td>
+                    <td className="px-8 py-6 text-right">
+                      <p className="text-sm font-bold text-emerald-600">{formatARS(item.ingresos)}</p>
+                    </td>
+                    <td className="px-8 py-6 text-right">
+                      <p className="text-sm font-bold text-rose-600">{formatARS(item.egresos)}</p>
+                    </td>
+                    <td className="px-8 py-6 text-right">
+                      <p className={`text-sm font-bold ${item.neto >= 0 ? 'text-emerald-600' : 'text-rose-600'}`}>{item.neto >= 0 ? '+' : ''}{formatARS(item.neto)}</p>
+                    </td>
+                    <td className="px-8 py-6 text-right">
+                      <p className="text-lg font-bold text-slate-900 tracking-tight">{formatARS(item.saldoFinal)}</p>
+                    </td>
+                    <td className="px-8 py-6 text-center" onClick={e => e.stopPropagation()}>
+                      <button onClick={() => { const adj = configAdjustments?.values[item.key] || { incomes: [], expenses: [] }; setEditIncomes(adj.incomes || []); setEditExpenses(adj.expenses || []); setEditingMonth(item.key); }} className="p-2 text-slate-400 hover:text-blue-600 hover:bg-blue-50 rounded-lg transition-all"><Edit3 size={16} /></button>
+                    </td>
+                  </tr>
+                  {expandedMonth === item.key && (
+                    <tr className="bg-slate-50/30">
+                      <td colSpan={6} className="px-12 py-8">
+                        <div className="grid grid-cols-1 md:grid-cols-3 gap-8">
+                          <div className="space-y-4">
+                            <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Composición Ingresos</p>
+                            {item.ingresosDetalle.map((ing: any, idx: number) => (
+                              <div key={idx} className="flex justify-between items-center p-3 rounded-xl bg-white border border-slate-100 shadow-sm">
+                                <span className="text-xs font-bold text-slate-700">{ing.nombre}</span>
+                                <span className="text-xs font-bold text-emerald-600">{formatARS(ing.monto)}</span>
+                              </div>
+                            ))}
+                          </div>
+                          <div className="space-y-4">
+                            <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Composición Egresos</p>
+                            {item.egresosDetalle.map((egr: any, idx: number) => (
+                              <div key={idx} className="flex justify-between items-center p-3 rounded-xl bg-white border border-slate-100 shadow-sm">
+                                <span className="text-xs font-bold text-slate-700">{egr.nombre}</span>
+                                <span className="text-xs font-bold text-rose-600">{formatARS(egr.monto)}</span>
+                              </div>
+                            ))}
+                          </div>
+                          <div className={`p-6 rounded-2xl border flex flex-col items-center text-center justify-center ${item.neto >= 0 ? 'bg-emerald-50 border-emerald-100' : 'bg-rose-50 border-rose-100'}`}>
+                            <Target className={item.neto >= 0 ? 'text-emerald-600 mb-3' : 'text-rose-600 mb-3'} size={32} />
+                            <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-1">Ticket Saludable</p>
+                            <p className={`text-xl font-bold ${item.neto >= 0 ? 'text-emerald-700' : 'text-rose-700'}`}>{formatARS(item.ticketSaludable)}</p>
+                          </div>
+                        </div>
                       </td>
                     </tr>
-
-                    {/* MODAL DE EDICIÓN EN LÍNEA (MULTILÍNEA) */}
-                    {isEditing && (
-                      <tr className="bg-blue-50/50 border-b border-blue-100">
-                        <td colSpan={7} className="px-12 py-8">
-                          <div className="space-y-8">
-                            <div className="flex items-center justify-between">
-                              <h4 className="text-lg font-display font-bold text-blue-900 flex items-center gap-2"><Sparkles size={20} /> Simular Escenario para {item.label}</h4>
-                              <div className="flex gap-3">
-                                <button onClick={() => setEditingMonth(null)} className="px-4 py-2 text-gray-500 font-bold hover:bg-gray-100 rounded-lg">Cancelar</button>
-                                <button onClick={handleSaveAdjustment} className="bg-blue-600 text-white px-6 py-2 rounded-lg font-bold shadow-md hover:bg-blue-700 transition-colors">Guardar Simulación</button>
-                              </div>
-                            </div>
-
-                            <div className="grid grid-cols-1 md:grid-cols-2 gap-12">
-                              {/* INGRESOS POTENCIALES */}
-                              <div className="space-y-4">
-                                <div className="flex justify-between items-center border-b border-blue-200 pb-2">
-                                  <h5 className="text-xs font-bold text-blue-800 uppercase tracking-widest">Ingresos Potenciales (+)</h5>
-                                  <button onClick={() => addSimItem('income')} className="text-[10px] font-bold bg-blue-600 text-white px-2 py-1 rounded flex items-center gap-1 hover:bg-blue-700"><Plus size={12}/> Agregar</button>
-                                </div>
-                                <div className="space-y-3">
-                                  {editIncomes.map(inc => (
-                                    <div key={inc.id} className="flex gap-2 items-center animate-in slide-in-from-left-2">
-                                      <input type="text" placeholder="Ej: Cliente Nuevo A" className="flex-1 border border-blue-200 rounded p-2 text-xs outline-none focus:ring-2 focus:ring-blue-500" value={inc.label} onChange={e => updateSimItem('income', inc.id, 'label', e.target.value)} />
-                                      <div className="relative w-32">
-                                        <span className="absolute left-2 top-1/2 -translate-y-1/2 text-gray-400 text-xs">$</span>
-                                        <input type="number" className="w-full border border-blue-200 rounded p-2 pl-5 text-xs font-mono outline-none focus:ring-2 focus:ring-blue-500" value={inc.amount} onChange={e => updateSimItem('income', inc.id, 'amount', e.target.value)} />
-                                      </div>
-                                      <button onClick={() => removeSimItem('income', inc.id)} className="text-gray-400 hover:text-red-500"><Trash2 size={16}/></button>
-                                    </div>
-                                  ))}
-                                  {editIncomes.length === 0 && <p className="text-xs text-gray-400 italic">No hay ingresos simulados.</p>}
-                                </div>
-                              </div>
-
-                              {/* EGRESOS POTENCIALES */}
-                              <div className="space-y-4">
-                                <div className="flex justify-between items-center border-b border-blue-200 pb-2">
-                                  <h5 className="text-xs font-bold text-blue-800 uppercase tracking-widest">Egresos Potenciales (-)</h5>
-                                  <button onClick={() => addSimItem('expense')} className="text-[10px] font-bold bg-blue-600 text-white px-2 py-1 rounded flex items-center gap-1 hover:bg-blue-700"><Plus size={12}/> Agregar</button>
-                                </div>
-                                <div className="space-y-3">
-                                  {editExpenses.map(exp => (
-                                    <div key={exp.id} className="flex gap-2 items-center animate-in slide-in-from-left-2">
-                                      <input type="text" placeholder="Ej: Inversión Software" className="flex-1 border border-blue-200 rounded p-2 text-xs outline-none focus:ring-2 focus:ring-blue-500" value={exp.label} onChange={e => updateSimItem('expense', exp.id, 'label', e.target.value)} />
-                                      <div className="relative w-32">
-                                        <span className="absolute left-2 top-1/2 -translate-y-1/2 text-gray-400 text-xs">$</span>
-                                        <input type="number" className="w-full border border-blue-200 rounded p-2 pl-5 text-xs font-mono outline-none focus:ring-2 focus:ring-blue-500" value={exp.amount} onChange={e => updateSimItem('expense', exp.id, 'amount', e.target.value)} />
-                                      </div>
-                                      <button onClick={() => removeSimItem('expense', exp.id)} className="text-gray-400 hover:text-red-500"><Trash2 size={16}/></button>
-                                    </div>
-                                  ))}
-                                  {editExpenses.length === 0 && <p className="text-xs text-gray-400 italic">No hay egresos simulados.</p>}
-                                </div>
-                              </div>
-                            </div>
-                          </div>
-                        </td>
-                      </tr>
-                    )}
-
-                    {/* DESGLOSE EXPANDIDO */}
-                    {isExpanded && !isEditing && (
-                      <tr className="bg-gray-50/50 animate-in slide-in-from-top-2">
-                        <td colSpan={7} className="px-12 py-6 border-b border-gray-100">
-                          <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
-                            
-                            {/* DETALLE INGRESOS */}
-                            <div>
-                              <h4 className="text-xs font-bold text-green-700 uppercase tracking-widest mb-3 flex items-center gap-2">
-                                <ArrowUpRight size={14} /> Composición de Ingresos
-                              </h4>
-                              <div className="space-y-2">
-                                {item.ingresosDetalle.map((ing: any, idx: number) => (
-                                  <div key={idx} className={`flex justify-between items-center p-2 rounded border shadow-sm ${ing.isSim ? 'bg-blue-50 border-blue-100' : 'bg-white border-gray-100'}`}>
-                                    <div>
-                                      <p className="font-bold text-gray-800 text-xs">{ing.nombre}</p>
-                                      <p className="text-[10px] text-gray-400">{ing.tipo}</p>
-                                    </div>
-                                    <span className={`font-mono font-bold text-xs ${ing.isSim ? 'text-blue-600' : 'text-green-600'}`}>{formatARS(ing.monto)}</span>
-                                  </div>
-                                ))}
-                              </div>
-                            </div>
-
-                            {/* DETALLE EGRESOS */}
-                            <div>
-                              <h4 className="text-xs font-bold text-red-700 uppercase tracking-widest mb-3 flex items-center gap-2">
-                                <ArrowDownRight size={14} /> Composición de Egresos
-                              </h4>
-                              <div className="space-y-2">
-                                {item.egresosDetalle.map((egr: any, idx: number) => (
-                                  <div key={idx} className={`flex justify-between items-center p-2 rounded border shadow-sm ${egr.isSim ? 'bg-orange-50 border-orange-100' : 'bg-white border-gray-100'}`}>
-                                    <div className="flex-1 pr-4">
-                                      <p className="font-bold text-gray-800 text-xs">{egr.nombre}</p>
-                                      <p className="text-[10px] text-gray-400 leading-tight">{egr.detalle}</p>
-                                    </div>
-                                    <span className={`font-mono font-bold text-xs ${egr.isSim ? 'text-orange-600' : 'text-red-500'}`}>{formatARS(egr.monto)}</span>
-                                  </div>
-                                ))}
-                              </div>
-                            </div>
-
-                            {/* TICKET SALUDABLE */}
-                            <div className={`p-5 rounded-2xl border flex flex-col justify-center items-center text-center ${isRed ? 'bg-red-50 border-red-100' : 'bg-green-50 border-green-100'}`}>
-                              <Target className={isRed ? 'text-red-600 mb-2' : 'text-green-600 mb-2'} size={32} />
-                              <h4 className="text-xs font-bold text-gray-500 uppercase tracking-widest mb-1">Ticket Promedio Saludable</h4>
-                              <p className={`text-2xl font-mono font-bold ${isRed ? 'text-red-700' : 'text-green-700'}`}>{formatARS(item.ticketSaludable)}</p>
-                              <p className="text-[10px] text-gray-500 mt-2 leading-tight">
-                                {isRed 
-                                  ? `Para cubrir costos y tener un 25% de margen, cada uno de tus ${item.clientesActivosCount} clientes debería pagar este monto.` 
-                                  : `¡Felicidades! Tu ticket actual supera el mínimo saludable para este nivel de costos.`}
-                              </p>
-                            </div>
-
-                          </div>
-                        </td>
-                      </tr>
-                    )}
-                  </React.Fragment>
-                );
-              })}
+                  )}
+                </React.Fragment>
+              ))}
             </tbody>
           </table>
         </div>
       </div>
+
+      {editingMonth && (
+        <div className="fixed inset-0 bg-slate-900/40 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+          <div className="bg-white rounded-[2.5rem] w-full max-w-2xl p-10 shadow-2xl animate-in zoom-in-95 border border-white/20 max-h-[90vh] overflow-y-auto">
+            <div className="flex justify-between items-center mb-10">
+              <h2 className="text-2xl font-bold tracking-tight text-slate-900">Simular Escenario</h2>
+              <button onClick={() => setEditingMonth(null)} className="p-2 hover:bg-slate-100 rounded-full transition-colors text-slate-400"><X size={24} /></button>
+            </div>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-10">
+              <div className="space-y-6">
+                <div className="flex justify-between items-center">
+                  <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Ingresos (+)</p>
+                  <button onClick={() => setEditIncomes([...editIncomes, { id: crypto.randomUUID(), label: '', amount: 0 }])} className="p-1.5 bg-emerald-50 text-emerald-600 rounded-lg hover:bg-emerald-100 transition-all"><Plus size={14} /></button>
+                </div>
+                {editIncomes.map(inc => (
+                  <div key={inc.id} className="flex gap-2">
+                    <input className="flex-1 border border-slate-200 rounded-lg p-2 text-xs font-bold" placeholder="Etiqueta" value={inc.label} onChange={e => setEditIncomes(editIncomes.map(i => i.id === inc.id ? { ...i, label: e.target.value } : i))} />
+                    <input type="number" className="w-24 border border-slate-200 rounded-lg p-2 text-xs font-bold" placeholder="Monto" value={inc.amount} onChange={e => setEditIncomes(editIncomes.map(i => i.id === inc.id ? { ...i, amount: Number(e.target.value) } : i))} />
+                    <button onClick={() => setEditIncomes(editIncomes.filter(i => i.id !== inc.id))} className="text-slate-300 hover:text-rose-500"><Trash2 size={14} /></button>
+                  </div>
+                ))}
+              </div>
+              <div className="space-y-6">
+                <div className="flex justify-between items-center">
+                  <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Egresos (-)</p>
+                  <button onClick={() => setEditExpenses([...editExpenses, { id: crypto.randomUUID(), label: '', amount: 0 }])} className="p-1.5 bg-rose-50 text-rose-600 rounded-lg hover:bg-rose-100 transition-all"><Plus size={14} /></button>
+                </div>
+                {editExpenses.map(exp => (
+                  <div key={exp.id} className="flex gap-2">
+                    <input className="flex-1 border border-slate-200 rounded-lg p-2 text-xs font-bold" placeholder="Etiqueta" value={exp.label} onChange={e => setEditExpenses(editExpenses.map(i => i.id === exp.id ? { ...i, label: e.target.value } : i))} />
+                    <input type="number" className="w-24 border border-slate-200 rounded-lg p-2 text-xs font-bold" placeholder="Monto" value={exp.amount} onChange={e => setEditExpenses(editExpenses.map(i => i.id === exp.id ? { ...i, amount: Number(e.target.value) } : i))} />
+                    <button onClick={() => setEditExpenses(editExpenses.filter(i => i.id !== exp.id))} className="text-slate-300 hover:text-rose-500"><Trash2 size={14} /></button>
+                  </div>
+                ))}
+              </div>
+            </div>
+            <div className="flex justify-end gap-3 mt-12 pt-8 border-t border-slate-100">
+              <button onClick={() => setEditingMonth(null)} className="px-6 py-3.5 text-slate-400 font-bold uppercase tracking-widest text-[10px] hover:bg-slate-50 rounded-xl transition-colors">Cancelar</button>
+              <button onClick={() => saveAdjustmentMutation.mutate({ month: editingMonth, incomes: editIncomes, expenses: editExpenses })} className="bg-slate-900 text-white px-8 py-3.5 rounded-xl font-bold uppercase tracking-widest text-[10px] shadow-lg shadow-slate-900/10 active:scale-95 transition-all">Guardar Simulación</button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

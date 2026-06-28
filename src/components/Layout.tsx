@@ -23,14 +23,14 @@ export default function Layout() {
       <aside className="w-72 bg-slate-900 text-white flex flex-col sticky top-0 h-screen shadow-2xl z-40">
         <div className="p-10">
           <div className="bg-white/5 rounded-3xl p-6 border border-white/10 flex flex-col items-center text-center group hover:bg-white/10 transition-all">
-            <div className="w-16 h-16 bg-white rounded-2xl flex items-center justify-center mb-4 shadow-lg group-hover:scale-105 transition-transform">
-              <img
-                src="https://szflrpyvxfowfmskamge.supabase.co/storage/v1/object/public/assets/logo-jengibre.png"
-                alt="Jengibre"
-                className="w-10 h-10 object-contain"
+            <div className="w-16 h-16 bg-white rounded-2xl flex items-center justify-center mb-4 shadow-lg group-hover:scale-105 transition-transform overflow-hidden">
+              <img 
+                src="/logo.jpg" 
+                alt="Jengibre" 
+                className="w-full h-full object-cover" 
                 onError={(e) => {
                   (e.target as HTMLImageElement).src = 'https://ui-avatars.com/api/?name=J&background=0f172a&color=fff';
-                }}
+                }} 
               />
             </div>
             <p className="text-[10px] font-bold uppercase tracking-[0.2em] text-white/40 mb-1">Software de Gestión</p>
@@ -45,8 +45,8 @@ export default function Layout() {
               to={item.path}
               className={({ isActive }) => `
                 flex items-center gap-4 px-5 py-4 rounded-2xl transition-all duration-300 group
-                ${isActive
-                  ? 'bg-jengibre-primary text-white shadow-lg shadow-jengibre-primary/20'
+                ${isActive 
+                  ? 'bg-jengibre-primary text-white shadow-lg shadow-jengibre-primary/20' 
                   : 'text-white/50 hover:text-white hover:bg-white/5'}
               `}
             >

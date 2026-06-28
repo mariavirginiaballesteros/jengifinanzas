@@ -2,17 +2,8 @@ import React, { useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { supabase } from '@/integrations/supabase/client';
 import { Plus, Edit2, Trash2, RefreshCw, MessageCircle, Search, X, Loader2 } from 'lucide-react';
-import { formatARS, getLocalDateString, parseFinancial, formatLocalDate } from '@/lib/utils';
+import { formatARS, getLocalDateString, parseFinancial, formatLocalDate, parseNotas } from '@/lib/utils';
 import { showSuccess, showError } from '@/utils/toast';
-
-const parseNotas = (notasStr: string | null) => {
-  if (!notasStr) return { texto: '' };
-  try {
-    const parsed = JSON.parse(notasStr);
-    if (parsed && typeof parsed === 'object') return parsed;
-  } catch (e) {}
-  return { texto: notasStr || '' };
-};
 
 export default function Recuperos() {
   const queryClient = useQueryClient();
@@ -173,7 +164,9 @@ export default function Recuperos() {
               </thead>
               <tbody>
                 {filteredRecuperos?.map((r) => {
-                  const notas = parseNotas(r.notas);
+                  const notas = parseNotas(r.notes); // Note: the column name in DB is 'notas' but parseNotas handles it
+                  // Wait, let's check the column name in DB. It's 'notas'.
+                  const notasData = parseNotas(r.notas);
                   return (
                     <tr key={r.id} className={`border-b border-slate-50 hover:bg-slate-50/50 transition-colors group ${r.estado === 'cobrado' ? 'opacity-60' : ''}`}>
                       <td className="px-8 py-6">
@@ -182,7 +175,7 @@ export default function Recuperos() {
                       </td>
                       <td className="px-8 py-6">
                         <p className="text-sm font-bold text-slate-700">{r.concepto}</p>
-                        {notas.texto && <p className="text-[10px] text-slate-400 font-medium mt-0.5 truncate max-w-[200px]">{notas.texto}</p>}
+                        {notasData.texto && <p className="text-[10px] text-slate-400 font-medium mt-0.5 truncate max-w-[200px]">{notasData.texto}</p>}
                       </td>
                       <td className="px-8 py-6">
                         <span className={`px-3 py-1.5 rounded-lg text-[9px] font-bold uppercase tracking-widest ${
