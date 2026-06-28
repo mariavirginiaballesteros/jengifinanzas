@@ -1,583 +1,254 @@
-import React, { useMemo, useState } from 'react';
+import React, { useState, useMemo } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { supabase } from '@/integrations/supabase/client';
-import { formatARS, formatUSD, formatLocalDate, parseFinancial, parseNotas, getLocalDateString, parseDescripcion } from '@/lib/utils';
-import { TipAlert } from '@/components/TipAlert';
-import {
-  ChevronLeft, ChevronRight, Bot, Sparkles,
-  ShieldCheck, Lightbulb, Send, Loader2, Landmark, X, FileText, Calendar, Settings, Info, Wallet, ArrowUpRight, ArrowDownRight
-} from 'lucide-react';
+import { Wallet, TrendingUp, ArrowUpRight, ArrowDownRight, Target, Info, Settings, ChevronLeft, ChevronRight, Sparkles, Send, Loader2, Landmark } from 'lucide-react';
+import { formatARS, formatUSD, parseFinancial, getLocalDateString } from '@/lib/utils';
 import { useCotizacionOficial } from '@/hooks/useCotizacion';
-import { showError, showSuccess } from '@/utils/toast';
+import { showSuccess, showError } from '@/utils/toast';
 
 export default function SaludFinanciera() {
   const queryClient = useQueryClient();
-  const [yearSelected, setYearSelected] = useState(new Date().getFullYear());
   const { data: cotizacionData } = useCotizacionOficial();
-  const cotizacion = Number(cotizacionData) || 1000;
+  const cotizacion = cotizacionData || 1000;
+  const [selectedYear, setSelectedYear] = useState(new Date().getFullYear());
 
-  const [chatInput, setChatInput] = useState('');
-  const [chatMessages, setChatMessages] = useState<{role: 'user' | 'assistant', content: string}[]>([]);
-  const [isChatLoading, setIsChatLoading] = useState(false);
-  const [isConfigOpen, setIsConfigOpen] = useState(false);
-
-  const [selectedDetail, setSelectedDetail] = useState<{
-    categoria: string,
-    mes: string,
-    movimientos: any[]
-  } | null>(null);
-
-  const { data: movimientos, isLoading: isLoadingMov } = useQuery({
-    queryKey: ['movimientos'],
+  // Queries
+  const { data: cuentas } = useQuery({
+    queryKey: ['cuentas_salud'],
     queryFn: async () => {
-      const { data, error } = await supabase.from('movimientos').select(`*, cliente:clientes(nombre)`).order('fecha', { ascending: true });
+      const { data, error } = await supabase.from('cuentas').select('*').order('nombre');
       if (error) throw error;
-      return data || [];
+      return data;
     }
   });
 
   const { data: facturas } = useQuery({
-    queryKey: ['facturacion'],
+    queryKey: ['facturacion_salud'],
     queryFn: async () => {
       const { data, error } = await supabase.from('facturacion').select('*');
       if (error) throw error;
-      return data || [];
+      return data;
     }
   });
 
   const { data: equipo } = useQuery({
-    queryKey: ['equipo'],
+    queryKey: ['equipo_salud'],
     queryFn: async () => {
       const { data, error } = await supabase.from('equipo').select('*').eq('activo', true);
       if (error) throw error;
-      return data || [];
+      return data;
     }
   });
 
-  const { data: clientes } = useQuery({
-    queryKey: ['clientes'],
+  const { data: config } = useQuery({
+    queryKey: ['configuracion_salud'],
     queryFn: async () => {
-      const { data, error } = await supabase.from('clientes').select('id, nombre, estado').eq('estado', 'activo');
+      const { data, error } = await supabase.from('configuracion').select('*');
       if (error) throw error;
-      return data || [];
+      return data;
     }
   });
 
-  const { data: configRows } = useQuery({
-    queryKey: ['configuracion'],
-    queryFn: async () => {
-      const { data } = await supabase.from('configuracion').select('*').in('clave', [
-        'saldos_iniciales',
-        'costo_direccion_mensual',
-        'gastos_fijos_estimados',
-        'extra_reserva_mensual'
-      ]);
-      return data || [];
-    }
-  });
+  // Cálculos de Saldos Reales
+  const saldos = useMemo(() => {
+    if (!cuentas) return { totalARS: 0, porCuenta: [] };
+    const porCuenta = cuentas.map(c => {
+      const esUSD = c.nombre.toUpperCase().includes('USD') || c.nombre.toUpperCase().includes('DÓLAR');
+      const saldoARS = esUSD ? c.saldo * cotizacion : c.saldo;
+      return { ...c, esUSD, saldoARS };
+    }).filter(c => c.nombre.toUpperCase() !== 'IVA');
 
-  const configSaldos = JSON.parse(configRows?.find(r => r.clave === 'saldos_iniciales')?.valor || '{}');
-  const costoDireccion = Number(configRows?.find(r => r.clave === 'costo_direccion_mensual')?.valor || 0);
-  const gastosFijos = Number(configRows?.find(r => r.clave === 'gastos_fijos_estimados')?.valor || 0);
-  const extraReserva = Number(configRows?.find(r => r.clave === 'extra_reserva_mensual')?.valor || 0);
+    const totalARS = porCuenta.reduce((acc, c) => acc + c.saldoARS, 0);
+    return { totalARS, porCuenta };
+  }, [cuentas, cotizacion]);
 
-  const saveConfigMutation = useMutation({
-    mutationFn: async (updates: { clave: string, valor: string }[]) => {
-      for (const update of updates) {
-        const existing = configRows?.find(r => r.clave === update.clave);
-        if (existing) {
-          await supabase.from('configuracion').update({ valor: update.valor }).eq('id', existing.id);
-        } else {
-          await supabase.from('configuracion').insert([{ clave: update.clave, valor: update.valor, descripcion: 'Configuración de Salud Financiera' }]);
-        }
-      }
-    },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['configuracion'] });
-      showSuccess('Configuración actualizada');
-      setIsConfigOpen(false);
-    },
-    onError: (err: any) => showError(err.message)
-  });
-
-  const {
-    saldos, grilla, mesesNames, totalCajaARS, totalARS_puro, totalUSD_puro,
-    fondoReservaObjetivo, excedente, porcentajeFondo, costoMensualReserva, montoRealHoy,
-    ingresosPendientes, egresosEquipoPendientes
-  } = useMemo(() => {
-    const defaultState = { 
-      saldos: {}, 
-      grilla: { ingresos: {}, egresos: {}, totales: Array(12).fill(0).map(() => ({ ingresos: 0, egresos: 0, neto: 0, margen: 0, saldoCaja: 0 })) }, 
-      mesesNames: ['Ene', 'Feb', 'Mar', 'Abr', 'May', 'Jun', 'Jul', 'Ago', 'Sep', 'Oct', 'Nov', 'Dic'], 
-      totalCajaARS: 0, totalARS_puro: 0, totalUSD_puro: 0, 
-      fondoReservaObjetivo: 0, excedente: 0, porcentajeFondo: 0, costoMensualReserva: 0, montoRealHoy: 0,
-      ingresosPendientes: 0, egresosEquipoPendientes: 0
-    };
-
-    if (!movimientos || !facturas || !equipo || !clientes) return defaultState;
-
-    const saldosCalc: Record<string, { ars: number, usd: number }> = {};
-    Object.entries(configSaldos).forEach(([cuenta, monto]) => {
-      if (cuenta === 'IVA') return;
-      const val = parseFinancial(monto);
-      if (!isNaN(val)) saldosCalc[cuenta] = { ars: val, usd: 0 };
-    });
-
-    const mesesKeys = Array.from({ length: 12 }, (_, i) => `${yearSelected}-${String(i + 1).padStart(2, '0')}`);
-    const ingresosPorCategoria: Record<string, { nombre: string, data: number[], details: any[][] }> = {};
-    const egresosPorCategoria: Record<string, { nombre: string, data: number[], details: any[][] }> = {};
-    const totalesMes = mesesKeys.map(() => ({ ingresos: 0, egresos: 0, neto: 0, margen:0, saldoCaja: 0 }));
-
-    let saldoInicialAnio = 0;
-    Object.values(saldosCalc).forEach(s => { saldoInicialAnio = parseFinancial(saldoInicialAnio + s.ars); });
-
-    movimientos.forEach(m => {
-      if (!m.fecha || m.cuenta === 'IVA') return;
-      const notasParsed = parseNotas(m.notas);
-      const isUSD = m.cuenta === 'MP Mauro' ? false : notasParsed.moneda === 'USD';
-      const notasTexto = notasParsed.texto;
-      
-      const montoOriginal = parseFinancial(m.monto) || 0;
-      const valorEnPesos = parseFinancial(isUSD ? montoOriginal * cotizacion : montoOriginal);
-
-      if (!saldosCalc[m.cuenta]) saldosCalc[m.cuenta] = { ars: 0, usd: 0 };
-
-      if (m.tipo === 'ingreso') {
-        if (isUSD) saldosCalc[m.cuenta].usd = parseFinancial(saldosCalc[m.cuenta].usd + montoOriginal);
-        else saldosCalc[m.cuenta].ars = parseFinancial(saldosCalc[m.cuenta].ars + montoOriginal);
-      } else if (m.tipo === 'egreso') {
-        if (isUSD) saldosCalc[m.cuenta].usd = parseFinancial(saldosCalc[m.cuenta].usd - montoOriginal);
-        else saldosCalc[m.cuenta].ars = parseFinancial(saldosCalc[m.cuenta].ars - montoOriginal);
-      } else if (m.tipo === 'transferencia' && m.cuenta_destino) {
-        if (m.cuenta_destino === 'IVA') {
-          if (isUSD) saldosCalc[m.cuenta].usd = parseFinancial(saldosCalc[m.cuenta].usd - montoOriginal);
-          else saldosCalc[m.cuenta].ars = parseFinancial(saldosCalc[m.cuenta].ars - montoOriginal);
-        } else {
-          if (!saldosCalc[m.cuenta_destino]) saldosCalc[m.cuenta_destino] = { ars: 0, usd: 0 };
-          if (isUSD) {
-            saldosCalc[m.cuenta].usd = parseFinancial(saldosCalc[m.cuenta].usd - montoOriginal);
-            saldosCalc[m.cuenta_destino].usd = parseFinancial(saldosCalc[m.cuenta_destino].usd + montoOriginal);
-          } else {
-            saldosCalc[m.cuenta].ars = parseFinancial(saldosCalc[m.cuenta].ars - montoOriginal);
-            saldosCalc[m.cuenta_destino].ars = parseFinancial(saldosCalc[m.cuenta_destino].ars + montoOriginal);
-          }
-        }
-      }
-
-      const anioMov = parseInt(m.fecha.substring(0, 4));
-      if (anioMov < yearSelected) {
-        if (m.tipo === 'ingreso') saldoInicialAnio = parseFinancial(saldoInicialAnio + valorEnPesos);
-        else if (m.tipo === 'egreso') saldoInicialAnio = parseFinancial(saldoInicialAnio - valorEnPesos);
-      } else if (anioMov === yearSelected) {
-        const mesIndex = mesesKeys.indexOf(m.fecha.substring(0, 7));
-        if (mesIndex !== -1 && (m.tipo === 'ingreso' || m.tipo === 'egreso')) {
-          const movConDetalle = { ...m, valorEnPesos, notasTexto, isUSD };
-          if (m.tipo === 'ingreso') {
-            const cat = m.concepto || 'Otros Ingresos';
-            if (!ingresosPorCategoria[cat]) ingresosPorCategoria[cat] = { nombre: cat, data: Array(12).fill(0), details: Array(12).fill(0).map(() => []) };
-            ingresosPorCategoria[cat].data[mesIndex] = parseFinancial(ingresosPorCategoria[cat].data[mesIndex] + valorEnPesos);
-            ingresosPorCategoria[cat].details[mesIndex].push(movConDetalle);
-            totalesMes[mesIndex].ingresos = parseFinancial(totalesMes[mesIndex].ingresos + valorEnPesos);
-          } else {
-            const cat = m.concepto || 'Otros Gastos';
-            if (!egresosPorCategoria[cat]) egresosPorCategoria[cat] = { nombre: cat, data: Array(12).fill(0), details: Array(12).fill(0).map(() => []) };
-            egresosPorCategoria[cat].data[mesIndex] = parseFinancial(egresosPorCategoria[cat].data[mesIndex] + valorEnPesos);
-            egresosPorCategoria[cat].details[mesIndex].push(movConDetalle);
-            totalesMes[mesIndex].egresos = parseFinancial(totalesMes[mesIndex].egresos + valorEnPesos);
-          }
-        }
-      }
-    });
-
-    let totalCajaARS = 0;
-    let totalARS_puro = 0;
-    let totalUSD_puro = 0;
-    Object.values(saldosCalc).forEach(s => {
-      totalARS_puro = parseFinancial(totalARS_puro + s.ars);
-      totalUSD_puro = parseFinancial(totalUSD_puro + s.usd);
-      totalCajaARS = parseFinancial(totalCajaARS + s.ars + (s.usd * cotizacion));
-    });
-
-    let acumulado = saldoInicialAnio;
-    totalesMes.forEach(t => {
-      t.neto = parseFinancial(t.ingresos - t.egresos);
-      t.margen = t.ingresos > 0 ? (t.neto / t.ingresos) * 100 : 0;
-      acumulado = parseFinancial(acumulado + t.neto);
-      t.saldoCaja = acumulado;
-    });
-
-    const mesActualKey = getLocalDateString().substring(0, 7);
-    const hoyStr = getLocalDateString();
+  // Cálculos de Monto Real Proyectado
+  const proyeccion = useMemo(() => {
+    if (!facturas || !equipo || !config) return { facturasPendientes: 0, honorariosPendientes: 0, costoEstructural: 0, montoReal: 0 };
     
-    const ingresosPendientes = facturas
-      .filter(f => f.estado !== 'pagado' && f.mes <= hoyStr)
-      .reduce((acc, f) => {
-        const desc = parseDescripcion(f.descripcion);
-        const final = Number(f.monto_final || f.monto_base || 0);
-        const cobrado = desc.monto_pagado + desc.retencion_ganancias + desc.retencion_iva + desc.monto_retenido;
-        return parseFinancial(acc + (final - cobrado));
-      }, 0);
+    const hoy = new Date();
+    const hoyStr = getLocalDateString().substring(0, 7);
 
-    const totalEquipoMes = equipo.reduce((acc, e) => {
-      const notas = parseNotas(e.notas);
-      let totalMiembro = parseFinancial(e.honorario_mensual || 0);
-      Object.entries(notas.asignaciones).forEach(([cId, monto]) => {
-        if (clientes.find(c => c.id === cId)) totalMiembro = parseFinancial(totalMiembro + Number(monto));
-      });
-      return parseFinancial(acc + totalMiembro);
+    const facturasPendientes = facturas
+      .filter(f => f.estado !== 'pagado' && f.mes <= hoyStr)
+      .reduce((acc, f) => acc + parseFinancial(f.monto_final || f.monto_base), 0);
+
+    const honorariosPendientes = equipo.reduce((acc, m) => {
+      const notas = m.notas ? JSON.parse(m.notas) : {};
+      const asignaciones = Object.values(notas.asignaciones || {}).reduce((a: number, b: any) => a + Number(b), 0);
+      return acc + Number(m.honorario_mensual || 0) + asignaciones;
     }, 0);
 
-    const pagadoEquipoMes = movimientos
-      .filter(m =>
-        m.tipo === 'egreso' &&
-        m.concepto === 'Honorarios Equipo' &&
-        m.fecha?.startsWith(mesActualKey)
-      )
-      .reduce((acc, m) => parseFinancial(acc + Number(m.monto)), 0);
+    const gastosFijos = Number(config.find(c => c.clave === 'gastos_fijos_estimados')?.valor || 0);
+    const costoDir = Number(config.find(c => c.clave === 'costo_direccion_mensual')?.valor || 0);
+    const costoEstructural = gastosFijos + costoDir;
 
-    const egresosEquipoPendientes = Math.max(0, parseFinancial(totalEquipoMes - pagadoEquipoMes));
-    const montoRealHoy = parseFinancial(totalCajaARS + ingresosPendientes - egresosEquipoPendientes);
+    const montoReal = saldos.totalARS + facturasPendientes - honorariosPendientes;
 
-    const costoMensualReserva = parseFinancial(gastosFijos + costoDireccion + extraReserva);
-    const fondoReservaObjetivo = parseFinancial(costoMensualReserva * 6);
-    const excedente = Math.max(0, parseFinancial(montoRealHoy - fondoReservaObjetivo));
-    const porcentajeFondo = Math.max(0, Math.min(100, (montoRealHoy / (fondoReservaObjetivo || 1)) * 100));
+    return { facturasPendientes, honorariosPendientes, costoEstructural, montoReal };
+  }, [facturas, equipo, config, saldos]);
 
-    return {
-      saldos: saldosCalc,
-      mesesNames: defaultState.mesesNames,
-      totalCajaARS,
-      totalARS_puro,
-      totalUSD_puro,
-      fondoReservaObjetivo,
-      excedente,
-      porcentajeFondo,
-      costoMensualReserva,
-      montoRealHoy,
-      ingresosPendientes,
-      egresosEquipoPendientes,
-      grilla: { ingresos: ingresosPorCategoria, egresos: egresosPorCategoria, totales: totalesMes }
-    };
-  }, [movimientos, facturas, equipo, clientes, configSaldos, yearSelected, cotizacion, costoDireccion, gastosFijos, extraReserva]);
-
-  const handleSendMessage = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!chatInput.trim() || isChatLoading) return;
-    const userMsg = chatInput;
-    setChatInput('');
-    setChatMessages(prev => [...prev, { role: 'user', content: userMsg }]);
-    setIsChatLoading(true);
-    try {
-      const { data, error } = await supabase.functions.invoke('asesor-financiero', {
-        body: { 
-          messages: [...chatMessages, { role: 'user', content: userMsg }],
-          contexto: { totalCajaARS, totalARS_puro, totalUSD_puro, fondoReservaObjetivo, excedente, montoRealHoy }
-        }
-      });
-      if (error) throw error;
-      setChatMessages(prev => [...prev, { role: 'assistant', content: data.reply }]);
-    } catch (err: any) {
-      showError(err.message || "No se pudo conectar con el asesor IA.");
-    } finally {
-      setIsChatLoading(false);
-    }
-  };
-
-  if (isLoadingMov) return (
-    <div className="flex flex-col items-center justify-center h-64">
-      <Loader2 className="w-10 h-10 text-jengibre-primary animate-spin mb-4" />
-      <p className="text-gray-500 font-medium">Analizando salud financiera...</p>
-    </div>
-  );
+  const metaReserva = Number(config?.find(c => c.clave === 'meta_reserva_anual')?.valor || 33000000);
 
   return (
-    <div className="animate-in fade-in duration-500 pb-12 max-w-[100vw] overflow-hidden relative">
-      
-      {/* MODAL CONFIGURACIÓN META */}
-      {isConfigOpen && (
-        <div className="fixed inset-0 z-[110] flex items-center justify-center p-4">
-          <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" onClick={() => setIsConfigOpen(false)}></div>
-          <div className="relative bg-white rounded-2xl w-full max-w-md p-6 shadow-2xl animate-in zoom-in-95">
-            <h3 className="text-xl font-display font-bold mb-4 flex items-center gap-2">
-              <Settings className="text-jengibre-primary" /> Configurar Meta de Reserva
-            </h3>
-            <p className="text-sm text-gray-600 mb-6">Definí los costos estructurales que querés asegurar por 6 meses.</p>
-            
-            <form onSubmit={(e) => {
-              e.preventDefault();
-              const formData = new FormData(e.currentTarget);
-              saveConfigMutation.mutate([
-                { clave: 'gastos_fijos_estimados', valor: formData.get('fijos') as string },
-                { clave: 'costo_direccion_mensual', valor: formData.get('direccion') as string },
-                { clave: 'extra_reserva_mensual', valor: formData.get('extra') as string }
-              ]);
-            }} className="space-y-4">
-              <div>
-                <label className="block text-xs font-bold text-gray-500 uppercase mb-1">Gastos de Mantenimiento (Fijos)</label>
-                <input name="fijos" type="number" defaultValue={gastosFijos} className="w-full border border-gray-300 rounded-lg p-2.5 font-mono" />
-              </div>
-              <div>
-                <label className="block text-xs font-bold text-gray-500 uppercase mb-1">Sueldo Directora</label>
-                <input name="direccion" type="number" defaultValue={costoDireccion} className="w-full border border-gray-300 rounded-lg p-2.5 font-mono" />
-              </div>
-              <div>
-                <label className="block text-xs font-bold text-gray-500 uppercase mb-1">Extra de Seguridad Mensual</label>
-                <input name="extra" type="number" defaultValue={extraReserva} className="w-full border border-gray-300 rounded-lg p-2.5 font-mono" />
-              </div>
-              
-              <div className="bg-jengibre-cream p-3 rounded-xl text-center">
-                <p className="text-[10px] font-bold text-gray-500 uppercase">Nueva Meta Total (6 meses)</p>
-                <p className="text-lg font-mono font-bold text-jengibre-dark">
-                  {formatARS((Number(gastosFijos) + Number(costoDireccion) + Number(extraReserva)) * 6)}
-                </p>
-              </div>
-
-              <div className="flex justify-end gap-3 pt-4">
-                <button type="button" onClick={() => setIsConfigOpen(false)} className="px-4 py-2 text-gray-500 font-bold">Cancelar</button>
-                <button type="submit" className="bg-jengibre-primary text-white px-6 py-2 rounded-lg font-bold">Guardar Cambios</button>
-              </div>
-            </form>
-          </div>
-        </div>
-      )}
-
-      {/* PANEL DE DETALLES (DRILL-DOWN) */}
-      {selectedDetail && (
-        <div className="fixed inset-0 z-[100] flex justify-end">
-          <div className="absolute inset-0 bg-black/40 backdrop-blur-sm" onClick={() => setSelectedDetail(null)}></div>
-          <div className="relative w-full max-w-md bg-white h-full shadow-2xl animate-in slide-in-from-right duration-300 flex flex-col">
-            <div className="p-6 border-b border-gray-100 flex items-center justify-between bg-jengibre-dark text-white">
-              <div>
-                <h3 className="text-xl font-display font-bold">{selectedDetail.categoria}</h3>
-                <p className="text-xs opacity-80 uppercase tracking-widest font-bold">{selectedDetail.mes} {yearSelected}</p>
-              </div>
-              <button onClick={() => setSelectedDetail(null)} className="p-2 hover:bg-white/10 rounded-full transition-colors"><X size={24} /></button>
-            </div>
-            <div className="flex-1 overflow-y-auto p-6 space-y-4">
-              {selectedDetail.movimientos.length === 0 ? (
-                <div className="text-center py-12 text-gray-400"><FileText size={48} className="mx-auto mb-4 opacity-20" /><p>No hay movimientos registrados.</p></div>
-              ) : (
-                selectedDetail.movimientos.map((m, i) => (
-                  <div key={i} className="bg-gray-50 border border-gray-100 p-4 rounded-xl shadow-sm">
-                    <div className="flex justify-between items-start mb-2">
-                      <span className="text-[10px] font-bold text-gray-400 uppercase flex items-center gap-1"><Calendar size={10} /> {formatLocalDate(m.fecha)}</span>
-                      <span className={`font-mono font-bold ${m.tipo === 'ingreso' ? 'text-green-600' : 'text-red-600'}`}>{m.tipo === 'ingreso' ? '+' : '-'}{m.isUSD ? formatUSD(m.monto) : formatARS(m.monto)}</span>
-                    </div>
-                    <p className="text-sm font-bold text-gray-800 mb-1">{m.notasTexto || 'Sin detalle específico'}</p>
-                    {m.cliente && <p className="text-[10px] text-blue-600 font-bold uppercase">Cliente: {m.cliente.nombre}</p>}
-                    <p className="text-[10px] text-gray-400 mt-2">Cuenta: {m.cuenta}</p>
-                  </div>
-                ))
-              )}
-            </div>
-            <div className="p-6 border-t border-gray-100 bg-gray-50">
-              <div className="flex justify-between items-center">
-                <span className="font-bold text-gray-500 uppercase text-xs">Total del Mes:</span>
-                <span className="text-xl font-mono font-bold text-jengibre-dark">{formatARS(selectedDetail.movimientos.reduce((acc, m) => acc + m.valorEnPesos, 0))}</span>
-              </div>
-            </div>
-          </div>
-        </div>
-      )}
-
-      <header className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-10">
+    <div className="animate-in fade-in duration-700 pb-20">
+      <header className="flex flex-col md:flex-row md:items-end justify-between gap-6 mb-12">
         <div>
-          <h1 className="text-4xl font-black tracking-tighter text-jengibre-dark">Salud Financiera Real</h1>
-          <p className="text-gray-500 mt-1 font-bold uppercase tracking-widest text-[10px]">Saldos sincronizados con tus bancos y análisis de excedentes.</p>
+          <h1 className="text-4xl font-bold tracking-tight text-slate-900">Salud Financiera</h1>
+          <p className="text-slate-500 mt-1 font-medium">Análisis de liquidez real y proyecciones de excedentes.</p>
         </div>
-        <div className="flex items-center bg-white border border-gray-200 rounded-2xl shadow-sm p-1">
-          <button onClick={() => setYearSelected(y => y - 1)} className="p-2 hover:bg-gray-50 rounded-xl transition-colors"><ChevronLeft size={20} /></button>
-          <span className="px-6 font-black font-mono text-jengibre-primary text-lg">{yearSelected}</span>
-          <button onClick={() => setYearSelected(y => y + 1)} className="p-2 hover:bg-gray-50 rounded-xl transition-colors"><ChevronRight size={20} /></button>
+        <div className="flex items-center bg-white border border-slate-200 rounded-2xl p-1 shadow-sm">
+          <button onClick={() => setSelectedYear(y => y - 1)} className="p-2 hover:bg-slate-50 rounded-xl transition-colors text-slate-400"><ChevronLeft size={20} /></button>
+          <span className="px-6 font-bold text-slate-700">{selectedYear}</span>
+          <button onClick={() => setSelectedYear(y => y + 1)} className="p-2 hover:bg-slate-50 rounded-xl transition-colors text-slate-400"><ChevronRight size={20} /></button>
         </div>
       </header>
 
-      <section className="mb-12">
-        <h2 className="text-[11px] font-black uppercase tracking-[0.2em] text-gray-400 mb-5 flex items-center gap-3"><Landmark size={16} className="text-jengibre-primary" /> Saldos Reales por Cuenta</h2>
-        <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-5">
-          {Object.entries(saldos).map(([cuenta, montos]: [string, any]) => {
-            const totalConsolidadoCuenta = montos.ars + (montos.usd * cotizacion);
-            const hasUSD = montos.usd !== 0;
+      {/* Saldos Reales Grid */}
+      <section className="mb-16">
+        <div className="flex items-center gap-2 mb-6 text-slate-400">
+          <Landmark size={16} />
+          <h2 className="text-[11px] font-bold uppercase tracking-[0.15em]">Saldos Reales por Cuenta</h2>
+        </div>
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-5">
+          {saldos.porCuenta.map(c => (
+            <div key={c.id} className="bg-white border border-slate-200 p-6 rounded-3xl shadow-sm hover:shadow-md transition-all group">
+              <div className="flex items-center justify-between mb-4">
+                <div className="p-2 rounded-xl bg-slate-50 text-slate-400 group-hover:text-slate-600 transition-colors">
+                  <Wallet size={18} />
+                </div>
+                <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">{c.nombre}</span>
+              </div>
+              <div className="space-y-1">
+                <p className={`text-2xl font-semibold tracking-tight ${c.esUSD ? 'text-blue-600' : 'text-slate-900'}`}>
+                  {c.esUSD ? formatUSD(c.saldo) : formatARS(c.saldo)}
+                </p>
+                {c.esUSD && (
+                  <p className="text-[10px] font-medium text-slate-400">EQ: {formatARS(c.saldoARS)}</p>
+                )}
+              </div>
+            </div>
+          ))}
+          <div className="bg-jengibre-primary p-6 rounded-3xl shadow-lg shadow-jengibre-primary/20 flex flex-col justify-between relative overflow-hidden">
+            <div className="absolute -right-4 -top-4 opacity-10 rotate-12"><TrendingUp size={120} /></div>
+            <div className="relative z-10">
+              <div className="flex items-center gap-2 mb-4 text-white/70">
+                <Landmark size={16} />
+                <span className="text-[10px] font-bold uppercase tracking-wider">Consolidado Total</span>
+              </div>
+              <p className="text-2xl font-bold text-white tracking-tight">{formatARS(saldos.totalARS)}</p>
+              <p className="text-[10px] font-medium text-white/60 mt-1">LIQUIDEZ INMEDIATA</p>
+            </div>
+          </div>
+        </div>
+      </section>
 
-            return (
-              <div key={cuenta} className="p-6 rounded-[2rem] border bg-white border-jengibre-border shadow-sm hover:shadow-md transition-all group flex flex-col justify-between min-w-0">
-                <div className="flex items-center gap-2 mb-4">
-                  <div className="p-2 rounded-xl bg-gray-50 text-gray-400 group-hover:text-jengibre-primary transition-colors shrink-0 shadow-inner">
-                    <Wallet size={16} />
+      <div className="grid grid-cols-1 lg:grid-cols-12 gap-8">
+        {/* Excedentes y Retiros */}
+        <div className="lg:col-span-7">
+          <div className="bg-white border border-slate-200 rounded-[2.5rem] p-8 shadow-sm h-full">
+            <div className="flex items-center justify-between mb-10">
+              <div className="flex items-center gap-3">
+                <div className="p-2.5 rounded-2xl bg-emerald-50 text-emerald-600"><Target size={20} /></div>
+                <h2 className="text-lg font-bold text-slate-900 tracking-tight">Excedentes y Retiros</h2>
+              </div>
+              <button className="p-2 text-slate-400 hover:bg-slate-50 rounded-xl transition-colors"><Settings size={20} /></button>
+            </div>
+
+            <div className="space-y-10">
+              <div className="relative">
+                <div className="flex justify-between items-end mb-4">
+                  <div>
+                    <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-1">Monto Real Proyectado (Hoy)</p>
+                    <h3 className="text-4xl font-bold text-slate-900 tracking-tight">{formatARS(proyeccion.montoReal)}</h3>
                   </div>
-                  <span className="text-[10px] font-black uppercase text-gray-500 truncate tracking-tighter" title={cuenta}>{cuenta}</span>
+                  <div className="text-right">
+                    <p className="text-[10px] font-bold text-rose-500 uppercase tracking-widest mb-1">Meta Reserva</p>
+                    <p className="text-lg font-bold text-rose-500 tracking-tight">{formatARS(metaReserva)}</p>
+                  </div>
                 </div>
                 
-                <div className="min-w-0">
-                  {hasUSD ? (
-                    <>
-                      <p className="text-2xl font-mono font-black text-blue-700 leading-none tracking-tighter truncate" title={formatUSD(montos.usd)}>{formatUSD(montos.usd)}</p>
-                      <p className="text-[10px] text-gray-400 mt-2 truncate font-bold uppercase tracking-tighter" title={`Eq: ${formatARS(totalConsolidadoCuenta)}`}>Eq: {formatARS(totalConsolidadoCuenta)}</p>
-                    </>
-                  ) : (
-                    <p className="text-2xl font-mono font-black text-jengibre-dark leading-none tracking-tighter truncate" title={formatARS(totalConsolidadoCuenta)}>{formatARS(totalConsolidadoCuenta)}</p>
-                  )}
+                <div className="h-3 w-full bg-slate-100 rounded-full overflow-hidden mb-8">
+                  <div 
+                    className="h-full bg-emerald-500 rounded-full transition-all duration-1000" 
+                    style={{ width: `${Math.min((proyeccion.montoReal / metaReserva) * 100, 100)}%` }}
+                  />
+                </div>
+
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-6">
+                  <div className="p-5 rounded-2xl bg-slate-50 border border-slate-100">
+                    <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-3">Composición del Saldo</p>
+                    <div className="space-y-3">
+                      <div className="flex justify-between text-xs">
+                        <span className="text-slate-500">Saldo en Cuentas</span>
+                        <span className="font-semibold text-slate-700">{formatARS(saldos.totalARS)}</span>
+                      </div>
+                      <div className="flex justify-between text-xs">
+                        <span className="text-emerald-600 font-medium">(+) Facturas Pendientes</span>
+                        <span className="font-semibold text-emerald-600">{formatARS(proyeccion.facturasPendientes)}</span>
+                      </div>
+                      <div className="flex justify-between text-xs">
+                        <span className="text-rose-500 font-medium">(-) Honorarios Pendientes</span>
+                        <span className="font-semibold text-rose-500">{formatARS(proyeccion.honorariosPendientes)}</span>
+                      </div>
+                    </div>
+                  </div>
+                  <div className="p-5 rounded-2xl bg-slate-50 border border-slate-100">
+                    <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-3">Costo Estructural</p>
+                    <div className="space-y-1">
+                      <p className="text-xl font-bold text-slate-700 tracking-tight">{formatARS(proyeccion.costoEstructural)}</p>
+                      <p className="text-[10px] text-slate-400 font-medium">MANTENIMIENTO + SUELDO DIR</p>
+                    </div>
+                  </div>
                 </div>
               </div>
-            );
-          })}
-          
-          <div className="p-6 rounded-[2rem] border border-jengibre-primary bg-jengibre-primary text-white shadow-xl shadow-jengibre-primary/20 transform hover:scale-[1.02] transition-all flex flex-col justify-between min-w-0">
-            <div className="flex items-center gap-2 mb-4">
-              <Landmark size={16} className="opacity-80 shrink-0" />
-              <span className="text-[10px] font-black uppercase opacity-80 truncate tracking-tighter">Total Agencia (Eq. ARS)</span>
-            </div>
-            <div className="min-w-0">
-              <p className="text-2xl font-mono font-black tracking-tighter truncate" title={formatARS(totalCajaARS)}>{formatARS(totalCajaARS)}</p>
-              <p className="text-[10px] opacity-60 mt-2 truncate font-bold uppercase tracking-tighter">Consolidado total</p>
+
+              <div className="pt-8 border-t border-slate-100">
+                <div className="flex items-start gap-4 p-5 rounded-2xl bg-blue-50/50 border border-blue-100">
+                  <Info className="text-blue-500 shrink-0 mt-0.5" size={18} />
+                  <p className="text-xs text-blue-700 leading-relaxed">
+                    El <strong>Monto Real Proyectado</strong> considera el dinero disponible hoy, sumando lo facturado este mes (o vencido) y restando los compromisos de honorarios del equipo.
+                  </p>
+                </div>
+              </div>
             </div>
           </div>
         </div>
-      </section>
 
-      <div className="grid grid-cols-1 lg:grid-cols-12 gap-10 mb-12">
-        <section className="lg:col-span-6 bg-white border border-jengibre-border rounded-[2.5rem] p-8 shadow-sm">
-          <div className="flex items-center justify-between mb-8">
-            <h2 className="text-xs font-black uppercase tracking-[0.2em] text-gray-400 flex items-center gap-3"><ShieldCheck className="text-jengibre-green" /> Excedentes y Retiros</h2>
-            <button onClick={() => setIsConfigOpen(true)} className="p-2.5 text-gray-400 hover:text-jengibre-primary hover:bg-jengibre-cream rounded-xl transition-all"><Settings size={20} /></button>
-          </div>
-          
-          <div className="bg-gray-50/50 p-8 rounded-[2rem] border border-gray-100 mb-8 shadow-inner">
-            <div className="flex justify-between items-start mb-6">
-              <div>
-                <p className="text-[10px] font-black text-gray-400 uppercase tracking-widest mb-2">Monto Real Proyectado (Hoy)</p>
-                <div className="flex items-center gap-2">
-                  <p className="text-4xl font-mono font-black text-jengibre-dark tracking-tighter">{formatARS(montoRealHoy)}</p>
-                </div>
-                <div className="mt-6 space-y-2">
-                  <div className="flex items-center justify-between text-[11px] text-gray-500 border-b border-gray-200/50 pb-2">
-                    <span className="font-bold uppercase tracking-tighter">Saldo en Cuentas:</span>
-                    <span className="font-mono font-black">{formatARS(totalCajaARS)}</span>
-                  </div>
-                  <div className="flex items-center justify-between text-[11px] text-green-600 border-b border-gray-200/50 pb-2">
-                    <span className="font-bold uppercase tracking-tighter">(+) Facturas (Vencidas + Mes Actual):</span>
-                    <span className="font-mono font-black">{formatARS(ingresosPendientes)}</span>
-                  </div>
-                  <div className="flex items-center justify-between text-[11px] text-red-500">
-                    <span className="font-bold uppercase tracking-tighter">(-) Honorarios Pendientes:</span>
-                    <span className="font-mono font-black">{formatARS(egresosEquipoPendientes)}</span>
-                  </div>
-                </div>
-                <div className="mt-8 space-y-2">
-                  <p className="text-[10px] text-gray-500 flex items-center gap-2 font-bold uppercase tracking-tighter">
-                    <div className="w-2 h-2 rounded-full bg-blue-500 shadow-sm"></div>
-                    Costo Estructural: <span className="text-jengibre-dark">{formatARS(costoMensualReserva)}</span>
-                  </p>
-                  <p className="text-[9px] text-gray-400 ml-4 italic font-medium">
-                    (Mantenimiento: {formatARS(gastosFijos)} + Sueldo Dir: {formatARS(costoDireccion)} + Extra: {formatARS(extraReserva)})
-                  </p>
-                </div>
-              </div>
-              <div className="text-right">
-                <p className="text-[10px] font-black text-jengibre-primary uppercase tracking-widest mb-2">Meta Reserva (6 meses)</p>
-                <p className="text-3xl font-mono font-black text-jengibre-primary tracking-tighter">{formatARS(fondoReservaObjetivo)}</p>
-              </div>
+        {/* Asesor IA */}
+        <div className="lg:col-span-5">
+          <div className="bg-slate-900 rounded-[2.5rem] p-8 shadow-xl h-full flex flex-col relative overflow-hidden border border-white/5">
+            <div className="absolute top-0 right-0 p-12 opacity-5 pointer-events-none"><Sparkles size={200} /></div>
+            
+            <div className="flex items-center gap-3 mb-8 relative z-10">
+              <div className="p-2.5 rounded-2xl bg-white/10 text-white"><Sparkles size={20} /></div>
+              <h2 className="text-lg font-bold text-white tracking-tight">Asesor Financiero IA</h2>
             </div>
-            <div className="h-4 w-full bg-gray-200 rounded-full mt-6 overflow-hidden shadow-inner">
-              <div className="h-full bg-jengibre-green transition-all duration-1000 shadow-lg" style={{ width: `${porcentajeFondo}%` }}></div>
-            </div>
-            <div className="flex justify-between items-center mt-3">
-              <p className="text-[10px] text-gray-400 font-black uppercase tracking-widest">Progreso: {porcentajeFondo.toFixed(1)}%</p>
-              <p className="text-[10px] text-gray-500 font-bold uppercase tracking-tighter">Faltan {formatARS(Math.max(0, fondoReservaObjetivo - montoRealHoy))} para la meta</p>
-            </div>
-          </div>
 
-          <div className="grid grid-cols-2 gap-6">
-            <div className="p-6 rounded-[1.5rem] border border-indigo-100 bg-indigo-50/30 shadow-sm group hover:bg-indigo-50 transition-colors">
-              <p className="text-[10px] font-black text-indigo-600 uppercase tracking-widest mb-2">Excedente Libre</p>
-              <p className="text-3xl font-mono font-black text-indigo-900 tracking-tighter group-hover:scale-105 transition-transform origin-left">{formatARS(excedente)}</p>
+            <div className="flex-1 flex flex-col items-center justify-center text-center px-6 relative z-10">
+              <div className="w-16 h-16 rounded-full bg-white/5 flex items-center justify-center mb-6">
+                <Sparkles className="text-white/20" size={32} />
+              </div>
+              <p className="text-white/40 text-sm font-medium leading-relaxed">
+                Consultame sobre inversiones, retiros de dividendos o proyecciones de flujo de caja...
+              </p>
             </div>
-            <div className="p-6 rounded-[1.5rem] border border-gray-100 bg-gray-50 shadow-sm group hover:bg-white transition-colors">
-              <p className="text-[10px] font-black text-gray-500 uppercase tracking-widest mb-2">Meses Cubiertos</p>
-              <p className="text-3xl font-mono font-black text-gray-700 tracking-tighter group-hover:scale-105 transition-transform origin-left">{(montoRealHoy / (costoMensualReserva || 1)).toFixed(1)}</p>
-            </div>
-          </div>
-        </section>
 
-        <section className="lg:col-span-6 bg-[#1e293b] text-white rounded-[2.5rem] p-8 shadow-2xl flex flex-col h-[500px] border border-white/5">
-          <h2 className="text-xs font-black uppercase tracking-[0.3em] text-indigo-400 flex items-center gap-3 mb-8"><Bot className="text-indigo-400" /> Asesor Financiero IA</h2>
-          <div className="flex-1 overflow-y-auto space-y-5 mb-6 pr-3 custom-scrollbar">
-            {chatMessages.length === 0 && (
-              <div className="flex flex-col items-center justify-center h-full text-center space-y-4 opacity-40">
-                <Sparkles size={48} className="text-indigo-400" />
-                <p className="text-sm font-medium max-w-[200px]">Consultame sobre inversiones, retiros de dividendos o proyecciones...</p>
+            <div className="mt-8 relative z-10">
+              <div className="relative group">
+                <input 
+                  type="text" 
+                  placeholder="¿Puedo retirar 1 millón hoy?" 
+                  className="w-full bg-white/5 border border-white/10 rounded-2xl py-4 pl-6 pr-14 outline-none focus:ring-2 focus:ring-white/20 transition-all text-white placeholder:text-white/20 text-sm"
+                />
+                <button className="absolute right-2 top-1/2 -translate-y-1/2 p-2.5 bg-white text-slate-900 rounded-xl hover:scale-105 transition-transform active:scale-95">
+                  <Send size={18} />
+                </button>
               </div>
-            )}
-            {chatMessages.map((msg, idx) => (
-              <div key={idx} className={`flex ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}>
-                <div className={`p-4 rounded-2xl max-w-[85%] text-sm font-medium leading-relaxed shadow-sm ${msg.role === 'user' ? 'bg-indigo-600 text-white' : 'bg-gray-800 border border-gray-700 text-gray-200'}`}>{msg.content}</div>
-              </div>
-            ))}
-            {isChatLoading && <div className="flex justify-start"><div className="bg-gray-800 p-4 rounded-2xl border border-gray-700 shadow-sm"><Loader2 className="animate-spin text-indigo-400" size={20} /></div></div>}
+            </div>
           </div>
-          <form onSubmit={handleSendMessage} className="flex gap-3 bg-gray-900/50 p-2 rounded-2xl border border-white/10">
-            <input type="text" placeholder="¿Puedo retirar 1 millón hoy?" className="flex-1 bg-transparent px-4 py-3 text-sm outline-none font-medium placeholder:text-gray-600" value={chatInput} onChange={e => setChatInput(e.target.value)} />
-            <button type="submit" disabled={isChatLoading} className="bg-indigo-600 hover:bg-indigo-500 text-white p-3 rounded-xl disabled:opacity-50 transition-all shadow-lg shadow-indigo-600/20"><Send size={20} /></button>
-          </form>
-        </section>
+        </div>
       </div>
-
-      <section className="bg-white border border-jengibre-border rounded-[2.5rem] shadow-sm overflow-hidden">
-        <div className="bg-[#1A2E40] text-white py-4 px-8 text-center font-black tracking-[0.4em] text-[10px] uppercase border-b border-white/5">REGISTRO MENSUAL REAL ({yearSelected})</div>
-        <div className="overflow-x-auto custom-scrollbar">
-          <table className="w-full text-left text-[11px] whitespace-nowrap border-collapse">
-            <thead>
-              <tr className="bg-gray-50 font-black border-b border-gray-200">
-                <th className="p-4 border-r border-gray-200 sticky left-0 bg-gray-50 z-10 uppercase tracking-widest text-gray-400">Categoría</th>
-                {mesesNames.map(m => <th key={m} className="p-4 border-r border-gray-200 text-center uppercase tracking-widest text-gray-400">{m}</th>)}
-                <th className="p-4 text-center bg-gray-100 uppercase tracking-widest text-gray-500">Total</th>
-              </tr>
-            </thead>
-            <tbody>
-              <tr className="bg-jengibre-green/10 text-jengibre-green font-black"><td className="p-3 px-4 sticky left-0 bg-[#f8faf9] z-10 uppercase tracking-[0.2em] text-[9px]">Ingresos</td><td colSpan={13}></td></tr>
-              {Object.values(grilla.ingresos).map((c: any) => (
-                <tr key={c.nombre} className="border-b border-gray-100 group hover:bg-gray-50/50 transition-colors">
-                  <td className="p-3 px-4 border-r border-gray-100 sticky left-0 bg-white z-10 font-bold text-gray-700 group-hover:bg-gray-50 transition-colors">{c.nombre}</td>
-                  {c.data.map((v: number, i: number) => (
-                    <td key={i} onClick={() => v > 0 && setSelectedDetail({ categoria: c.nombre, mes: mesesNames[i], movimientos: c.details[i] })} className={`p-3 border-r border-gray-100 text-right font-mono font-bold text-blue-800 ${v > 0 ? 'cursor-pointer hover:bg-blue-50 transition-colors' : 'text-gray-300'}`}>{v > 0 ? formatARS(v) : '-'}</td>
-                  ))}
-                  <td className="p-3 text-right font-mono font-black bg-gray-50/80 text-jengibre-dark">{formatARS(c.data.reduce((a: number, b: number) => a + b, 0))}</td>
-                </tr>
-              ))}
-              <tr className="bg-gray-50/80 font-black border-y border-gray-200">
-                <td className="p-4 sticky left-0 bg-gray-50 z-10 uppercase tracking-widest text-[9px] text-gray-500">Total Ingresos</td>
-                {grilla.totales.map((t, i) => <td key={i} className="p-4 text-right font-mono text-jengibre-dark">{formatARS(t.ingresos)}</td>)}
-                <td className="p-4 text-right font-mono bg-gray-100 text-jengibre-dark">{formatARS(grilla.totales.reduce((a, t) => a + t.ingresos, 0))}</td>
-              </tr>
-              <tr className="bg-red-50 text-red-600 font-black"><td className="p-3 px-4 sticky left-0 bg-[#fdf8f8] z-10 uppercase tracking-[0.2em] text-[9px]">Egresos</td><td colSpan={13}></td></tr>
-              {Object.values(grilla.egresos).map((c: any) => (
-                <tr key={c.nombre} className="border-b border-gray-100 group hover:bg-gray-50/50 transition-colors">
-                  <td className="p-3 px-4 border-r border-gray-100 sticky left-0 bg-white z-10 font-bold text-gray-700 group-hover:bg-gray-50 transition-colors">{c.nombre}</td>
-                  {c.data.map((v: number, i: number) => (
-                    <td key={i} onClick={() => v > 0 && setSelectedDetail({ categoria: c.nombre, mes: mesesNames[i], movimientos: c.details[i] })} className={`p-3 border-r border-gray-100 text-right font-mono font-bold text-red-700 ${v > 0 ? 'cursor-pointer hover:bg-red-50 transition-colors' : 'text-gray-300'}`}>{v > 0 ? formatARS(v) : '-'}</td>
-                  ))}
-                  <td className="p-3 text-right font-mono font-black bg-gray-50/80 text-jengibre-dark">{formatARS(c.data.reduce((a: number, b: number) => a + b, 0))}</td>
-                </tr>
-              ))}
-              <tr className="bg-red-50/50 font-black border-y border-red-100">
-                <td className="p-4 sticky left-0 bg-[#fdfafa] z-10 uppercase tracking-widest text-[9px] text-red-500">Total Egresos</td>
-                {grilla.totales.map((t, i) => <td key={i} className="p-4 text-right font-mono text-red-600">{formatARS(t.egresos)}</td>)}
-                <td className="p-4 text-right font-mono bg-red-50 text-red-700">{formatARS(grilla.totales.reduce((a, t) => a + t.egresos, 0))}</td>
-              </tr>
-              <tr className="bg-blue-50/30 font-black border-t-2 border-blue-100">
-                <td className="p-5 sticky left-0 bg-[#f8faff] z-10 uppercase tracking-widest text-[10px] text-blue-600">Resultado Neto</td>
-                {grilla.totales.map((t, i) => <td key={i} className={`p-5 text-right font-mono text-lg tracking-tighter ${t.neto < 0 ? 'text-red-600' : 'text-blue-900'}`}>{formatARS(t.neto)}</td>)}
-                <td className="p-5 text-right font-mono bg-blue-50 text-blue-900 text-lg tracking-tighter">{formatARS(grilla.totales.reduce((a, t) => a + t.neto, 0))}</td>
-              </tr>
-              <tr className="bg-jengibre-dark text-white font-black border-t-2 border-white/10">
-                <td className="p-5 sticky left-0 bg-jengibre-dark z-10 uppercase tracking-[0.2em] text-[10px] text-jengibre-secondary">Saldo Acumulado</td>
-                {grilla.totales.map((t, i) => <td key={i} className="p-5 text-right font-mono text-lg tracking-tighter text-white">{formatARS(t.saldoCaja)}</td>)}
-                <td className="p-5 text-right font-mono bg-gray-800 text-jengibre-secondary text-lg tracking-tighter">{formatARS(grilla.totales[11].saldoCaja)}</td>
-              </tr>
-            </tbody>
-          </table>
-        </div>
-      </section>
     </div>
   );
 }
