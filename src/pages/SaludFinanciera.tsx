@@ -2,7 +2,7 @@ import React, { useState, useMemo } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { supabase } from '@/integrations/supabase/client';
 import { Wallet, TrendingUp, ArrowUpRight, ArrowDownRight, Target, Info, Settings, ChevronLeft, ChevronRight, Sparkles, Send, Loader2, Landmark } from 'lucide-react';
-import { formatARS, formatUSD, parseFinancial, getLocalDateString } from '@/lib/utils';
+import { formatARS, formatUSD, parseFinancial, getLocalDateString, parseNotas } from '@/lib/utils';
 import { useCotizacionOficial } from '@/hooks/useCotizacion';
 import { showSuccess, showError } from '@/utils/toast';
 
@@ -74,8 +74,8 @@ export default function SaludFinanciera() {
       .reduce((acc, f) => acc + parseFinancial(f.monto_final || f.monto_base), 0);
 
     const honorariosPendientes = equipo.reduce((acc, m) => {
-      const notas = m.notas ? JSON.parse(m.notas) : {};
-      const asignaciones = Object.values(notas.asignaciones || {}).reduce((a: number, b: any) => a + Number(b), 0);
+      const notas = parseNotas(m.notas);
+      const asignaciones = (Object.values(notas.asignaciones || {}) as number[]).reduce((a: number, b: number) => a + Number(b || 0), 0);
       return acc + Number(m.honorario_mensual || 0) + asignaciones;
     }, 0);
 
