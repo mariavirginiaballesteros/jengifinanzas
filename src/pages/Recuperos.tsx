@@ -1,15 +1,29 @@
 import React, { useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { supabase } from '@/integrations/supabase/client';
-import { Plus, Edit2, Trash2, RefreshCw, MessageCircle, Search, X, Loader2 } from 'lucide-react';
-import { formatARS, getLocalDateString, parseFinancial, formatLocalDate, parseNotas } from '@/lib/utils';
+import { TipAlert } from '@/components/TipAlert';
+import { Plus, Edit2, Trash2, RefreshCw, MessageCircle } from 'lucide-react';
+import { formatARS, getLocalDateString } from '@/lib/utils';
 import { showSuccess, showError } from '@/utils/toast';
+
+// Helper para guardar datos extra como IIBB en el campo notas
+const parseNotas = (notasStr: string | null) => {
+  if (!notasStr) return { texto: '', iibb_porcentaje: 3, iibb_monto: 0 };
+  try {
+    const parsed = JSON.parse(notasStr);
+    if (parsed && typeof parsed === 'object' && 'iibb_porcentaje' in parsed) {
+      return parsed;
+    }
+  } catch (e) {
+    // Es una nota vieja en texto plano
+  }
+  return { texto: notasStr || '', iibb_porcentaje: 3, iibb_monto: 0 };
+};
 
 export default function Recuperos() {
   const queryClient = useQueryClient();
   const [isFormOpen, setIsFormOpen] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
-  const [searchTerm, setSearchTerm] = useState('');
   
   const defaultForm = {
     cliente_id: '',
@@ -22,6 +36,7 @@ export default function Recuperos() {
   };
   const [formData, setFormData] = useState<any>(defaultForm);
 
+  // Queries
   const { data: recuperos, isLoading } = useQuery({
     queryKey: ['recuperos'],
     queryFn: async () => {
@@ -42,10 +57,14 @@ export default function Recuperos() {
     }
   });
 
+  // Mutaciones
   const saveMutation = useMutation({
     mutationFn: async (payload: any) => {
-      const baseMonto = parseFinancial(payload.monto);
-      const notasJson = JSON.stringify({ texto: payload.notas });
+      const baseMonto = Number(payload.monto);
+
+      const notasJson = JSON.stringify({
+        texto: payload.notas
+      });
 
       const dataToSave = {
         cliente_id: payload.cliente_id,
@@ -75,6 +94,24 @@ export default function Recuperos() {
     onError: (err: any) => showError(err.message)
   });
 
+  const updateEstadoMutation = useMutation({
+    mutationFn: async ({ id, estado, currentFechaCobro }: { id: string, estado: string, currentFechaCobro: string | null }) => {
+      const payload: any = { estado };
+      if (estado === 'cobrado' && !currentFechaCobro) {
+        payload.fecha_cobro = getLocalDateString();
+      } else if (estado !== 'cobrado') {
+        payload.fecha_cobro = null;
+      }
+      
+      const { error } = await supabase.from('recuperos').update(payload).eq('id', id);
+      if (error) throw error;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['recuperos'] });
+      showSuccess('Estado actualizado');
+    }
+  });
+
   const deleteMutation = useMutation({
     mutationFn: async (id: string) => {
       const { error } = await supabase.from('recuperos').delete().eq('id', id);
@@ -86,17 +123,20 @@ export default function Recuperos() {
     }
   });
 
-  const filteredRecuperos = recuperos?.filter(r => 
-    r.cliente?.nombre.toLowerCase().includes(searchTerm.toLowerCase()) || 
-    r.concepto.toLowerCase().includes(searchTerm.toLowerCase())
-  );
+  // Handlers
+  const handleSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!formData.cliente_id) return showError('Debes seleccionar un cliente');
+    if (!formData.monto || Number(formData.monto) <= 0) return showError('El monto debe ser mayor a 0');
+    saveMutation.mutate(formData);
+  };
 
   const openEdit = (rec: any) => {
     const notasParsed = parseNotas(rec.notas);
     setFormData({
       cliente_id: rec.cliente_id,
       concepto: rec.concepto,
-      monto: rec.monto.toString(),
+      monto: rec.monto,
       fecha_pago: rec.fecha_pago,
       estado: rec.estado || 'pendiente',
       fecha_cobro: rec.fecha_cobro || '',
@@ -112,86 +152,215 @@ export default function Recuperos() {
     setFormData(defaultForm);
   };
 
+  // WhatsApp
   const handleWhatsApp = (rec: any) => {
     let msg = `Hola ${rec.cliente?.contacto_nombre || 'equipo'}! Te paso el detalle de un consumo que abonamos por ustedes para que puedan enviarnos el reembolso:%0A%0A`;
+    
     msg += `*Concepto:* ${rec.concepto}%0A`;
     msg += `*Fecha del gasto:* ${new Date(rec.fecha_pago).toLocaleDateString('es-AR')}%0A`;
     msg += `*Monto a transferir:* ${formatARS(rec.monto)}%0A%0A`;
+    
+    if (rec.estado === 'facturado') {
+      msg += `Ya les enviamos la factura correspondiente por este monto. `;
+    } else if (rec.estado === 'enviado_sin_factura') {
+      msg += `Avanzamos con el cobro sin emisión de factura como lo conversamos. `;
+    }
+    
     msg += `Por favor avisen cuando esté realizado el pago. ¡Gracias!`;
+    
     window.open(`https://wa.me/?text=${msg}`, '_blank');
   };
 
   return (
-    <div className="animate-in fade-in duration-700 pb-20">
-      <header className="flex flex-col sm:flex-row sm:items-center justify-between gap-6 mb-12">
+    <div className="animate-in fade-in duration-500 pb-12 w-full">
+      <header className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-8">
         <div>
-          <h1 className="text-4xl font-bold tracking-tight text-slate-900">Recuperos</h1>
-          <p className="text-slate-500 mt-1 font-medium">Control de gastos pagados por cuenta de clientes.</p>
+          <h1 className="text-3xl font-display font-bold text-jengibre-dark">Recuperos de Gastos</h1>
+          <p className="text-gray-600 mt-1">Controlá la plata que pusiste de tu bolsillo o de la agencia por clientes.</p>
         </div>
-        <button onClick={() => setIsFormOpen(true)} className="bg-slate-900 hover:bg-slate-800 text-white px-8 py-4 rounded-2xl font-bold text-sm flex items-center gap-3 transition-all shadow-lg shadow-slate-900/10 active:scale-95">
-          <Plus size={18} /> Cargar Consumo
+        <button 
+          onClick={() => setIsFormOpen(true)}
+          className="bg-jengibre-primary hover:bg-[#a64120] text-white px-5 py-2.5 rounded-xl font-medium flex items-center gap-2 shadow-sm"
+        >
+          <Plus size={20} /> Cargar Consumo
         </button>
       </header>
 
-      <div className="grid grid-cols-1 lg:grid-cols-4 gap-6 mb-10">
-        <div className="lg:col-span-3 relative group">
-          <Search className="absolute left-5 top-1/2 -translate-y-1/2 text-slate-400 group-focus-within:text-slate-600 transition-colors" size={18} />
-          <input type="text" placeholder="Buscar por cliente o concepto..." className="w-full bg-white border border-slate-200 rounded-xl py-3.5 pl-12 pr-6 outline-none focus:ring-2 focus:ring-slate-200 transition-all font-medium text-sm" value={searchTerm} onChange={e => setSearchTerm(e.target.value)} />
-        </div>
-        <div className="bg-white border border-slate-200 rounded-xl p-4 flex items-center justify-between shadow-sm">
-          <div className="flex items-center gap-3">
-            <div className="p-2 rounded-lg bg-slate-50 text-slate-400"><RefreshCw size={18} /></div>
-            <span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Pendientes</span>
-          </div>
-          <span className="text-xl font-bold text-slate-900">{filteredRecuperos?.filter(r => r.estado !== 'cobrado').length || 0}</span>
-        </div>
-      </div>
+      <TipAlert id="recuperos_intro" title="💡 Recupero de Gastos">
+        Registrá los consumos que pagaste por cuenta de un cliente para llevar el control de qué te deben y qué ya te devolvieron.
+      </TipAlert>
 
-      <div className="bg-white border border-slate-200 rounded-[2.5rem] overflow-hidden shadow-sm">
+      {/* FORMULARIO MODAL */}
+      {isFormOpen && (
+        <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4">
+          <div className="bg-white rounded-2xl w-full max-w-lg p-6 shadow-xl animate-in zoom-in-95 max-h-[90vh] overflow-y-auto">
+            <h2 className="text-2xl font-display font-bold mb-6 flex items-center gap-2">
+              <RefreshCw className="text-jengibre-primary" />
+              {editingId ? 'Editar Recupero' : 'Nuevo Gasto a Recuperar'}
+            </h2>
+            
+            <form onSubmit={handleSubmit} className="space-y-4">
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Cliente</label>
+                <select
+                  className="w-full border border-gray-300 rounded-lg p-2.5 focus:ring-2 focus:ring-jengibre-primary outline-none bg-white"
+                  value={formData.cliente_id} onChange={e => setFormData({...formData, cliente_id: e.target.value})}
+                  required
+                >
+                  <option value="">Seleccioná un cliente...</option>
+                  {clientes?.map((c:any) => <option key={c.id} value={c.id}>{c.nombre}</option>)}
+                </select>
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Concepto / Detalle del Gasto</label>
+                <input
+                  type="text" placeholder="Ej: Hosting AWS, Pauta en Meta, Merchandising..." required
+                  className="w-full border border-gray-300 rounded-lg p-2.5 focus:ring-2 focus:ring-jengibre-primary outline-none"
+                  value={formData.concepto} onChange={e => setFormData({...formData, concepto: e.target.value})}
+                />
+              </div>
+
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">Monto a Recuperar</label>
+                  <div className="relative">
+                    <span className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-500 font-bold">$</span>
+                    <input
+                      type="number" step="0.01" required min="1"
+                      className="w-full border border-gray-300 rounded-lg p-2.5 pl-8 focus:ring-2 focus:ring-jengibre-primary outline-none font-mono font-bold text-lg"
+                      value={formData.monto} onChange={e => setFormData({...formData, monto: e.target.value})}
+                    />
+                  </div>
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">Fecha del Pago</label>
+                  <input
+                    type="date" required
+                    className="w-full border border-gray-300 rounded-lg p-2.5 focus:ring-2 focus:ring-jengibre-primary outline-none"
+                    value={formData.fecha_pago} onChange={e => setFormData({...formData, fecha_pago: e.target.value})}
+                  />
+                </div>
+              </div>
+
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">Estado del Recupero</label>
+                  <select 
+                    className="w-full border border-gray-300 rounded-lg p-2.5 focus:ring-2 focus:ring-jengibre-primary outline-none font-bold"
+                    value={formData.estado} onChange={e => setFormData({...formData, estado: e.target.value})}
+                  >
+                    <option value="enviado_sin_factura">Enviado para cobrar sin factura</option>
+                    <option value="pendiente">Pendiente de facturar</option>
+                    <option value="facturado">Facturado esperando cobrar</option>
+                    <option value="cobrado">Pago completado</option>
+                  </select>
+                </div>
+                {formData.estado === 'cobrado' && (
+                  <div className="animate-in fade-in">
+                    <label className="block text-sm font-medium text-gray-700 mb-1">Fecha de Cobro</label>
+                    <input 
+                      type="date" required
+                      className="w-full border border-gray-300 rounded-lg p-2.5 focus:ring-2 focus:ring-jengibre-primary outline-none bg-green-50"
+                      value={formData.fecha_cobro} onChange={e => setFormData({...formData, fecha_cobro: e.target.value})}
+                    />
+                  </div>
+                )}
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Notas Internas</label>
+                <textarea 
+                  rows={2} placeholder="Opcional..."
+                  className="w-full border border-gray-300 rounded-lg p-2.5 focus:ring-2 focus:ring-jengibre-primary outline-none"
+                  value={formData.notas} onChange={e => setFormData({...formData, notas: e.target.value})}
+                />
+              </div>
+
+              <div className="flex justify-end gap-3 mt-6 pt-4 border-t border-gray-100">
+                <button type="button" onClick={closeForm} className="px-4 py-2 text-gray-600 hover:bg-gray-100 rounded-lg font-medium transition-colors">Cancelar</button>
+                <button type="submit" disabled={saveMutation.isPending} className="bg-jengibre-primary hover:bg-[#a64120] text-white px-6 py-2 rounded-lg font-medium transition-colors disabled:opacity-50">
+                  {saveMutation.isPending ? 'Guardando...' : 'Guardar Recupero'}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* LISTADO DE RECUPEROS */}
+      <div className="bg-white border border-jengibre-border rounded-2xl overflow-hidden shadow-sm">
         {isLoading ? (
-          <div className="flex justify-center py-32"><Loader2 className="w-12 h-12 text-slate-200 animate-spin" /></div>
+           <div className="flex justify-center py-12"><div className="w-8 h-8 border-4 border-jengibre-primary border-t-transparent rounded-full animate-spin"></div></div>
+        ) : recuperos?.length === 0 ? (
+          <div className="p-12 text-center">
+            <div className="bg-gray-50 w-16 h-16 rounded-full flex items-center justify-center mx-auto mb-4 text-gray-400"><RefreshCw size={32} /></div>
+            <h3 className="text-xl font-bold text-gray-800 mb-2">No hay recuperos</h3>
+            <p className="text-gray-500 mb-4">No tenés gastos pendientes de recuperar cargados en el sistema.</p>
+          </div>
         ) : (
           <div className="overflow-x-auto">
-            <table className="w-full text-left border-collapse">
+            <table className="w-full text-left border-collapse whitespace-nowrap">
               <thead>
-                <tr className="bg-slate-50/50 text-slate-400 text-[10px] font-bold uppercase tracking-[0.15em] border-b border-slate-100">
-                  <th className="px-8 py-5">Fecha / Cliente</th>
-                  <th className="px-8 py-5">Concepto</th>
-                  <th className="px-8 py-5">Estado</th>
-                  <th className="px-8 py-5 text-right">Monto</th>
-                  <th className="px-8 py-5 text-center">Acciones</th>
+                <tr className="bg-jengibre-cream/50 text-jengibre-dark text-sm border-b border-jengibre-border">
+                  <th className="px-4 py-3 font-bold">Fecha Gasto</th>
+                  <th className="px-4 py-3 font-bold">Cliente</th>
+                  <th className="px-4 py-3 font-bold">Concepto</th>
+                  <th className="px-4 py-3 font-bold text-right bg-blue-50/50">Total a Cobrar</th>
+                  <th className="px-4 py-3 font-bold text-center">Estado</th>
+                  <th className="px-4 py-3 font-bold text-center">Acciones</th>
                 </tr>
               </thead>
               <tbody>
-                {filteredRecuperos?.map((r) => {
-                  const notasData = parseNotas(r.notas);
+                {recuperos?.map((rec) => {
+                  const notasParsed = parseNotas(rec.notas);
+                  const total = Number(rec.monto);
+                  
+                  const getStatusStyle = (status: string) => {
+                    switch(status) {
+                      case 'cobrado': return 'bg-green-100 text-green-800 border border-green-200';
+                      case 'facturado': return 'bg-blue-100 text-blue-800 border border-blue-200';
+                      case 'enviado_sin_factura': return 'bg-purple-100 text-purple-800 border border-purple-200';
+                      default: return 'bg-amber-100 text-amber-800 border border-amber-200';
+                    }
+                  };
+
                   return (
-                    <tr key={r.id} className={`border-b border-slate-50 hover:bg-slate-50/50 transition-colors group ${r.estado === 'cobrado' ? 'opacity-60' : ''}`}>
-                      <td className="px-8 py-6">
-                        <p className="text-xs font-bold text-slate-900">{new Date(r.fecha_pago).toLocaleDateString()}</p>
-                        <p className="text-[10px] text-slate-400 font-bold uppercase tracking-wider mt-1">{r.cliente?.nombre}</p>
+                    <tr key={rec.id} className={`border-b border-gray-100 hover:bg-gray-50 transition-colors group ${rec.estado === 'cobrado' ? 'opacity-60 bg-gray-50/50' : ''}`}>
+                      <td className="px-4 py-4 text-sm text-gray-600">
+                        {new Date(rec.fecha_pago).toLocaleDateString('es-AR', {day: '2-digit', month: 'short', year: 'numeric'})}
                       </td>
-                      <td className="px-8 py-6">
-                        <p className="text-sm font-bold text-slate-700">{r.concepto}</p>
-                        {notasData.texto && <p className="text-[10px] text-slate-400 font-medium mt-0.5 truncate max-w-[200px]">{notasData.texto}</p>}
+                      <td className="px-4 py-4 font-bold text-gray-900">{rec.cliente?.nombre || 'Cliente Eliminado'}</td>
+                      <td className="px-4 py-4">
+                        <p className="text-sm font-medium text-gray-800">{rec.concepto}</p>
+                        {notasParsed.texto && <p className="text-xs text-gray-400 mt-0.5 truncate max-w-[200px]">{notasParsed.texto}</p>}
                       </td>
-                      <td className="px-8 py-6">
-                        <span className={`px-3 py-1.5 rounded-lg text-[9px] font-bold uppercase tracking-widest ${
-                          r.estado === 'cobrado' ? 'bg-emerald-50 text-emerald-600' :
-                          r.estado === 'facturado' ? 'bg-blue-50 text-blue-600' :
-                          'bg-amber-50 text-amber-600'
-                        }`}>
-                          {r.estado}
-                        </span>
+                      <td className="px-4 py-4 text-right font-mono font-bold text-lg text-jengibre-dark bg-blue-50/20">
+                        {formatARS(total)}
                       </td>
-                      <td className="px-8 py-6 text-right">
-                        <p className="text-lg font-bold text-slate-900 tracking-tight">{formatARS(r.monto)}</p>
+                      <td className="px-4 py-4 text-center">
+                        <select 
+                          className={`text-xs font-bold rounded-full px-3 py-1 outline-none cursor-pointer text-center appearance-none transition-colors ${getStatusStyle(rec.estado)}`}
+                          value={rec.estado}
+                          onChange={(e) => updateEstadoMutation.mutate({ id: rec.id, estado: e.target.value, currentFechaCobro: rec.fecha_cobro })}
+                        >
+                          <option value="enviado_sin_factura">Enviado (Sin Factura)</option>
+                          <option value="pendiente">Pendiente de facturar</option>
+                          <option value="facturado">Facturado (Esperando)</option>
+                          <option value="cobrado">Pago completado ✓</option>
+                        </select>
+                        {rec.estado === 'cobrado' && rec.fecha_cobro && (
+                          <p className="text-[10px] text-green-600 font-bold mt-1">el {new Date(rec.fecha_cobro).toLocaleDateString('es-AR')}</p>
+                        )}
                       </td>
-                      <td className="px-8 py-6">
-                        <div className="flex items-center justify-center gap-2 opacity-0 group-hover:opacity-100 transition-all">
-                          <button onClick={() => handleWhatsApp(r)} className="p-2 text-emerald-600 hover:bg-emerald-50 rounded-lg transition-all"><MessageCircle size={16} /></button>
-                          <button onClick={() => openEdit(r)} className="p-2 text-slate-400 hover:text-blue-600 hover:bg-blue-50 rounded-lg transition-all"><Edit2 size={16} /></button>
-                          <button onClick={() => { if(confirm('¿Eliminar recupero?')) deleteMutation.mutate(r.id); }} className="p-2 text-slate-400 hover:text-rose-600 hover:bg-rose-50 rounded-lg transition-all"><Trash2 size={16} /></button>
+                      <td className="px-4 py-4">
+                        <div className="flex items-center justify-center gap-2">
+                          <button onClick={() => handleWhatsApp(rec)} className="p-1.5 text-[#25D366] hover:bg-[#25D366]/10 rounded-lg transition-colors" title="Avisar y cobrar por WhatsApp">
+                            <MessageCircle size={18} />
+                          </button>
+                          <div className="w-px h-4 bg-gray-200 mx-1"></div>
+                          <button onClick={() => openEdit(rec)} className="p-1.5 text-gray-400 hover:text-blue-600 hover:bg-blue-50 rounded-lg transition-colors opacity-0 group-hover:opacity-100"><Edit2 size={16} /></button>
+                          <button onClick={() => { if(confirm('¿Eliminar este recupero?')) deleteMutation.mutate(rec.id); }} className="p-1.5 text-gray-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition-colors opacity-0 group-hover:opacity-100"><Trash2 size={16} /></button>
                         </div>
                       </td>
                     </tr>
@@ -202,46 +371,6 @@ export default function Recuperos() {
           </div>
         )}
       </div>
-
-      {isFormOpen && (
-        <div className="fixed inset-0 bg-slate-900/40 backdrop-blur-sm z-50 flex items-center justify-center p-4">
-          <div className="bg-white rounded-[2.5rem] w-full max-w-lg p-10 shadow-2xl animate-in zoom-in-95 border border-white/20">
-            <div className="flex justify-between items-center mb-10">
-              <h2 className="text-2xl font-bold tracking-tight text-slate-900">{editingId ? 'Editar Recupero' : 'Nuevo Recupero'}</h2>
-              <button onClick={closeForm} className="p-2 hover:bg-slate-100 rounded-full transition-colors text-slate-400"><X size={24} /></button>
-            </div>
-            <form onSubmit={(e) => { e.preventDefault(); saveMutation.mutate(formData); }} className="space-y-6">
-              <div className="space-y-1.5">
-                <label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest ml-1">Cliente</label>
-                <select className="w-full border border-slate-200 rounded-xl p-3.5 outline-none focus:ring-2 focus:ring-slate-100 font-bold text-slate-700 text-sm bg-white" value={formData.cliente_id} onChange={e => setFormData({...formData, cliente_id: e.target.value})} required>
-                  <option value="">Seleccionar cliente...</option>
-                  {clientes?.map(c => <option key={c.id} value={c.id}>{c.nombre}</option>)}
-                </select>
-              </div>
-              <div className="space-y-1.5">
-                <label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest ml-1">Concepto</label>
-                <input type="text" placeholder="Ej: Hosting AWS, Pauta Meta..." className="w-full border border-slate-200 rounded-xl p-3.5 outline-none focus:ring-2 focus:ring-slate-100 font-bold text-slate-700 text-sm" value={formData.concepto} onChange={e => setFormData({...formData, concepto: e.target.value})} required />
-              </div>
-              <div className="grid grid-cols-2 gap-6">
-                <div className="space-y-1.5">
-                  <label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest ml-1">Monto</label>
-                  <input type="number" step="0.01" className="w-full border border-slate-200 rounded-xl p-3.5 outline-none focus:ring-2 focus:ring-slate-100 font-bold text-slate-900 text-lg tracking-tight" value={formData.monto} onChange={e => setFormData({...formData, monto: e.target.value})} required />
-                </div>
-                <div className="space-y-1.5">
-                  <label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest ml-1">Fecha</label>
-                  <input type="date" className="w-full border border-slate-200 rounded-xl p-3.5 outline-none focus:ring-2 focus:ring-slate-100 font-bold text-slate-700 text-sm" value={formData.fecha_pago} onChange={e => setFormData({...formData, fecha_pago: e.target.value})} required />
-                </div>
-              </div>
-              <div className="flex justify-end gap-3 mt-10 pt-8 border-t border-slate-100">
-                <button type="button" onClick={closeForm} className="px-6 py-3.5 text-slate-400 font-bold uppercase tracking-widest text-[10px] hover:bg-slate-50 rounded-xl transition-colors">Cancelar</button>
-                <button type="submit" disabled={saveMutation.isPending} className="bg-slate-900 text-white px-8 py-3.5 rounded-xl font-bold uppercase tracking-widest text-[10px] shadow-lg shadow-slate-900/10 active:scale-95 transition-all disabled:opacity-50">
-                  {saveMutation.isPending ? 'Guardando...' : 'Guardar Recupero'}
-                </button>
-              </div>
-            </form>
-          </div>
-        </div>
-      )}
     </div>
   );
 }

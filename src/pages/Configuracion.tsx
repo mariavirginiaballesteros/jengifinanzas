@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { supabase } from '@/integrations/supabase/client';
-import { Plus, Trash2, Wallet, Settings, Lock, KeyRound, Landmark, Edit2, Check, X, Loader2 } from 'lucide-react';
+import { Plus, Trash2, Wallet, Settings, Lock, KeyRound, Landmark, Edit2, Check, X } from 'lucide-react';
 import { showSuccess, showError } from '@/utils/toast';
 import { formatARS } from '@/lib/utils';
 
@@ -14,12 +14,14 @@ export default function Configuracion() {
   const [cuentas, setCuentas] = useState<string[]>([]);
   const [saldosIniciales, setSaldosIniciales] = useState<Record<string, number>>({});
   
+  // Estado para edición de nombre
   const [editingIndex, setEditingIndex] = useState<number | null>(null);
   const [editingValue, setEditingValue] = useState('');
 
   const [newPassword, setNewPassword] = useState('');
   const [isUpdatingPassword, setIsUpdatingPassword] = useState(false);
 
+  // Traer configuración de cuentas
   const { data: configCuentas, isLoading: loadingCuentas } = useQuery({
     queryKey: ['configuracion', 'cuentas_caja'],
     queryFn: async () => {
@@ -29,6 +31,7 @@ export default function Configuracion() {
     }
   });
 
+  // Traer saldos iniciales
   const { data: configSaldos, isLoading: loadingSaldos } = useQuery({
     queryKey: ['configuracion', 'saldos_iniciales'],
     queryFn: async () => {
@@ -72,6 +75,7 @@ export default function Configuracion() {
     },
     onSuccess: (_, variables) => {
       queryClient.invalidateQueries({ queryKey: ['configuracion', variables.clave] });
+      queryClient.invalidateQueries({ queryKey: ['movimientos'] });
     },
     onError: (err: any) => showError(err.message)
   });
@@ -89,13 +93,29 @@ export default function Configuracion() {
   const handleRenameCuenta = (index: number) => {
     const oldName = cuentas[index];
     const newName = editingValue.trim();
-    if (!newName || oldName === newName) { setEditingIndex(null); return; }
-    if (cuentas.includes(newName)) { showError('Ya existe una cuenta con ese nombre'); return; }
+    
+    if (!newName || oldName === newName) {
+      setEditingIndex(null);
+      return;
+    }
+
+    if (cuentas.includes(newName)) {
+      showError('Ya existe una cuenta con ese nombre');
+      return;
+    }
 
     const updatedCuentas = [...cuentas];
     updatedCuentas[index] = newName;
+    
     setCuentas(updatedCuentas);
     saveConfigMutation.mutate({ clave: 'cuentas_caja', valor: updatedCuentas, desc: 'Lista de cuentas' });
+
+    // Actualizar movimientos en la base de datos para mantener consistencia
+    const updateMovimientos = async () => {
+      await supabase.from('movimientos').update({ cuenta: newName }).eq('cuenta', oldName);
+      await supabase.from('movimientos').update({ cuenta_destino: newName }).eq('cuenta_destino', oldName);
+    };
+    updateMovimientos();
 
     const updatedSaldos = { ...saldosIniciales };
     if (updatedSaldos[oldName] !== undefined) {
@@ -104,6 +124,7 @@ export default function Configuracion() {
       setSaldosIniciales(updatedSaldos);
       saveConfigMutation.mutate({ clave: 'saldos_iniciales', valor: updatedSaldos, desc: 'Saldos de apertura' });
     }
+
     setEditingIndex(null);
     showSuccess('Cuenta renombrada');
   };
@@ -114,7 +135,7 @@ export default function Configuracion() {
   };
 
   const saveSaldos = () => {
-    saveConfigMutation.mutate({ clave: 'saldos_iniciales', valor: saldosIniciales, desc: 'Saldos de apertura' });
+    saveConfigMutation.mutate({ clave: 'saldos_iniciales', valor: saldosIniciales, desc: 'Saldos de apertura de cada cuenta' });
     showSuccess('Saldos iniciales guardados');
   };
 
@@ -129,82 +150,110 @@ export default function Configuracion() {
   };
 
   return (
-    <div className="animate-in fade-in duration-700 pb-20 max-w-4xl mx-auto">
-      <header className="mb-12">
-        <h1 className="text-4xl font-bold tracking-tight text-slate-900">Configuración</h1>
-        <p className="text-slate-500 mt-1 font-medium">Ajustes del sistema y seguridad.</p>
+    <div className="animate-in fade-in duration-500 pb-12 max-w-4xl mx-auto space-y-8">
+      <header>
+        <h1 className="text-3xl font-display font-bold text-jengibre-dark flex items-center gap-3">
+          <Settings className="text-jengibre-primary" size={32} /> Configuración
+        </h1>
       </header>
 
-      <div className="space-y-10">
-        <section className="bg-white border border-slate-200 rounded-[2.5rem] p-8 shadow-sm">
-          <div className="flex items-center gap-3 mb-8">
-            <div className="p-2.5 rounded-2xl bg-slate-50 text-slate-400"><Landmark size={20} /></div>
-            <h2 className="text-lg font-bold text-slate-900 tracking-tight">Saldos de Apertura</h2>
+      <section className="bg-white border border-jengibre-border rounded-2xl p-6 shadow-sm">
+        <div className="flex items-center gap-3 mb-6 border-b border-gray-100 pb-4">
+          <div className="bg-jengibre-green/10 p-3 rounded-xl text-jengibre-green"><Landmark size={24} /></div>
+          <div>
+            <h2 className="text-xl font-display font-bold text-gray-800">Saldos de Apertura</h2>
+            <p className="text-sm text-gray-500">Ingresá el saldo real que tenés hoy en cada cuenta para que el sistema coincida con tu banco.</p>
           </div>
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-6 mb-8">
-            {cuentas.map(cuenta => (
-              <div key={cuenta} className="space-y-1.5">
-                <label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest ml-1">{cuenta}</label>
-                <div className="relative">
-                  <span className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400 font-bold text-sm">$</span>
-                  <input type="number" className="w-full border border-slate-200 rounded-xl p-3.5 pl-8 outline-none focus:ring-2 focus:ring-slate-100 font-bold text-slate-900 text-lg tracking-tight" value={saldosIniciales[cuenta] || 0} onChange={(e) => handleUpdateSaldo(cuenta, e.target.value)} />
-                </div>
-              </div>
-            ))}
-          </div>
-          <button onClick={saveSaldos} className="bg-slate-900 text-white px-8 py-4 rounded-xl font-bold uppercase tracking-widest text-[10px] shadow-lg shadow-slate-900/10 active:scale-95 transition-all">
-            Guardar Saldos Iniciales
-          </button>
-        </section>
+        </div>
 
-        <section className="bg-white border border-slate-200 rounded-[2.5rem] p-8 shadow-sm">
-          <div className="flex items-center gap-3 mb-8">
-            <div className="p-2.5 rounded-2xl bg-slate-50 text-slate-400"><Wallet size={20} /></div>
-            <h2 className="text-lg font-bold text-slate-900 tracking-tight">Cuentas y Billeteras</h2>
-          </div>
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 mb-8">
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 mb-6">
+          {cuentas.map(cuenta => (
+            <div key={cuenta} className="flex flex-col gap-1">
+              <label className="text-xs font-bold text-gray-500 uppercase">{cuenta}</label>
+              <div className="relative">
+                <span className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 font-bold">$</span>
+                <input 
+                  type="number" 
+                  className="w-full border border-gray-300 rounded-lg p-2.5 pl-8 outline-none focus:ring-2 focus:ring-jengibre-green font-mono"
+                  value={saldosIniciales[cuenta] || 0}
+                  onChange={(e) => handleUpdateSaldo(cuenta, e.target.value)}
+                />
+              </div>
+            </div>
+          ))}
+        </div>
+        <button onClick={saveSaldos} className="bg-jengibre-green hover:bg-green-700 text-white px-6 py-2.5 rounded-lg font-bold transition-colors">
+          Guardar Saldos Iniciales
+        </button>
+      </section>
+
+      <section className="bg-white border border-jengibre-border rounded-2xl p-6 shadow-sm">
+        <div className="flex items-center gap-3 mb-6 border-b border-gray-100 pb-4">
+          <div className="bg-jengibre-cream p-3 rounded-xl text-jengibre-primary"><Wallet size={24} /></div>
+          <h2 className="text-xl font-display font-bold text-gray-800">Cuentas y Billeteras</h2>
+        </div>
+        <div className="space-y-6">
+          <ul className="grid grid-cols-1 sm:grid-cols-2 gap-3">
             {cuentas.map((cuenta, index) => (
-              <div key={cuenta} className="flex items-center justify-between p-4 rounded-xl bg-slate-50 border border-slate-100 group">
+              <li key={cuenta} className="flex items-center justify-between bg-gray-50 border border-gray-200 rounded-lg p-3 group">
                 {editingIndex === index ? (
                   <div className="flex items-center gap-2 w-full">
-                    <input autoFocus className="flex-1 border border-slate-200 rounded-lg px-3 py-2 text-sm font-bold outline-none" value={editingValue} onChange={(e) => setEditingValue(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && handleRenameCuenta(index)} />
-                    <button onClick={() => handleRenameCuenta(index)} className="text-emerald-600 p-1.5 hover:bg-emerald-50 rounded-lg"><Check size={16}/></button>
-                    <button onClick={() => setEditingIndex(null)} className="text-rose-600 p-1.5 hover:bg-rose-50 rounded-lg"><X size={16}/></button>
+                    <input 
+                      autoFocus
+                      className="flex-1 border border-jengibre-primary rounded px-2 py-1 text-sm outline-none"
+                      value={editingValue}
+                      onChange={(e) => setEditingValue(e.target.value)}
+                      onKeyDown={(e) => e.key === 'Enter' && handleRenameCuenta(index)}
+                    />
+                    <button onClick={() => handleRenameCuenta(index)} className="text-green-600 p-1 hover:bg-green-50 rounded"><Check size={16}/></button>
+                    <button onClick={() => setEditingIndex(null)} className="text-red-600 p-1 hover:bg-red-50 rounded"><X size={16}/></button>
                   </div>
                 ) : (
                   <>
-                    <span className="text-sm font-bold text-slate-700">{cuenta}</span>
-                    <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-all">
-                      <button onClick={() => { setEditingIndex(index); setEditingValue(cuenta); }} className="p-2 text-slate-400 hover:text-blue-600 hover:bg-blue-50 rounded-lg"><Edit2 size={14} /></button>
-                      <button onClick={() => { const updated = cuentas.filter(c => c !== cuenta); setCuentas(updated); saveConfigMutation.mutate({ clave: 'cuentas_caja', valor: updated, desc: 'Lista de cuentas' }); }} className="p-2 text-slate-400 hover:text-rose-600 hover:bg-rose-50 rounded-lg"><Trash2 size={14} /></button>
+                    <span className="font-medium text-gray-800">{cuenta}</span>
+                    <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                      <button 
+                        onClick={() => { setEditingIndex(index); setEditingValue(cuenta); }} 
+                        className="p-1.5 text-gray-400 hover:text-blue-600 hover:bg-blue-50 rounded"
+                      >
+                        <Edit2 size={14} />
+                      </button>
+                      <button 
+                        onClick={() => {
+                          const updated = cuentas.filter(c => c !== cuenta);
+                          setCuentas(updated);
+                          saveConfigMutation.mutate({ clave: 'cuentas_caja', valor: updated, desc: 'Lista de cuentas' });
+                        }} 
+                        className="p-1.5 text-gray-400 hover:text-red-500 hover:bg-red-50 rounded"
+                      >
+                        <Trash2 size={14} />
+                      </button>
                     </div>
                   </>
                 )}
-              </div>
+              </li>
             ))}
-          </div>
-          <form onSubmit={handleAddCuenta} className="flex gap-3 pt-8 border-t border-slate-100">
-            <input type="text" placeholder="Nueva cuenta..." className="flex-1 border border-slate-200 rounded-xl p-3.5 outline-none focus:ring-2 focus:ring-slate-100 font-bold text-slate-700 text-sm" value={newCuenta} onChange={e => setNewCuenta(e.target.value)} />
-            <button type="submit" className="bg-slate-900 text-white px-6 py-3.5 rounded-xl font-bold"><Plus size={20} /></button>
+          </ul>
+          <form onSubmit={handleAddCuenta} className="flex gap-3 pt-4 border-t border-gray-100">
+            <input type="text" placeholder="Nueva cuenta..." className="flex-1 border border-gray-300 rounded-lg p-3 outline-none focus:ring-2 focus:ring-jengibre-primary" value={newCuenta} onChange={e => setNewCuenta(e.target.value)} />
+            <button type="submit" className="bg-jengibre-primary text-white px-6 py-3 rounded-lg font-bold"><Plus size={20} /></button>
           </form>
-        </section>
+        </div>
+      </section>
 
-        <section className="bg-white border border-slate-200 rounded-[2.5rem] p-8 shadow-sm">
-          <div className="flex items-center gap-3 mb-8">
-            <div className="p-2.5 rounded-2xl bg-slate-50 text-slate-400"><Lock size={20} /></div>
-            <h2 className="text-lg font-bold text-slate-900 tracking-tight">Seguridad</h2>
+      <section className="bg-white border border-jengibre-border rounded-2xl p-6 shadow-sm">
+        <div className="flex items-center gap-3 mb-6 border-b border-gray-100 pb-4">
+          <div className="bg-jengibre-primary/10 p-3 rounded-xl text-jengibre-primary"><Lock size={24} /></div>
+          <h2 className="text-xl font-display font-bold text-gray-800">Seguridad</h2>
+        </div>
+        <form onSubmit={handleUpdatePassword} className="max-w-md flex gap-3">
+          <div className="relative flex-1">
+            <KeyRound className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" size={18} />
+            <input type="password" placeholder="Nueva contraseña" className="w-full border border-gray-300 rounded-lg p-2.5 pl-10 outline-none focus:ring-2 focus:ring-jengibre-primary" value={newPassword} onChange={e => setNewPassword(e.target.value)} />
           </div>
-          <form onSubmit={handleUpdatePassword} className="flex flex-col sm:flex-row gap-4 max-w-md">
-            <div className="relative flex-1">
-              <KeyRound className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400" size={18} />
-              <input type="password" placeholder="Nueva contraseña" className="w-full border border-slate-200 rounded-xl p-3.5 pl-12 outline-none focus:ring-2 focus:ring-slate-100 font-bold text-slate-700 text-sm" value={newPassword} onChange={e => setNewPassword(e.target.value)} />
-            </div>
-            <button type="submit" disabled={isUpdatingPassword} className="bg-slate-900 text-white px-8 py-3.5 rounded-xl font-bold uppercase tracking-widest text-[10px] shadow-lg shadow-slate-900/10 active:scale-95 transition-all disabled:opacity-50">
-              {isUpdatingPassword ? 'Actualizando...' : 'Actualizar'}
-            </button>
-          </form>
-        </section>
-      </div>
+          <button type="submit" className="bg-jengibre-dark text-white px-5 py-2.5 rounded-lg font-bold">Actualizar</button>
+        </form>
+      </section>
     </div>
   );
 }

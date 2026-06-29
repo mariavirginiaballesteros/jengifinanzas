@@ -1,29 +1,61 @@
 import React, { useMemo } from 'react';
+import { formatARS, parseFinancial, parseDescripcion, parseNotas } from '@/lib/utils';
+import { Plus, FileText, RefreshCw, AlertCircle, CheckCircle2, Landmark, TrendingUp, Users, Sparkles, ShieldCheck, ArrowRight, Wallet, ArrowUpRight, ArrowDownRight } from 'lucide-react';
+import { Link } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
 import { supabase } from '@/integrations/supabase/client';
-import { TrendingUp, TrendingDown, Wallet, Users, FileText, ArrowUpRight, ArrowDownRight, Landmark, Calendar, Clock, CheckCircle2, Loader2 } from 'lucide-react';
-import { formatARS, formatUSD, parseFinancial, getLocalDateString, parseNotas } from '@/lib/utils';
 import { useCotizacionOficial } from '@/hooks/useCotizacion';
+
+const StatCard = ({ title, value, sub, icon: Icon, colorClass = "text-blue-600", bgClass = "bg-blue-50" }: { title: string, value: string, sub?: string, icon: any, colorClass?: string, bgClass?: string }) => (
+  <div className="bg-white border border-jengibre-border p-6 rounded-3xl shadow-sm hover:shadow-md transition-all group relative overflow-hidden">
+    <div className={`absolute -right-4 -top-4 opacity-10 group-hover:scale-110 transition-transform ${colorClass}`}>
+      <Icon size={100} />
+    </div>
+    <div className="relative z-10">
+      <div className="flex items-center gap-2 mb-3">
+        <div className={`p-2 rounded-xl ${bgClass} ${colorClass}`}>
+          <Icon size={18} />
+        </div>
+        <h3 className="text-[10px] font-bold uppercase tracking-widest text-gray-400">{title}</h3>
+      </div>
+      <p className="text-2xl font-mono font-bold text-jengibre-dark truncate">{value}</p>
+      {sub && <p className="text-[10px] text-gray-400 mt-2 font-medium truncate">{sub}</p>}
+    </div>
+  </div>
+);
+
+const SemaforoKPI = ({ title, value, status, label }: { title: string, value: string, status: 'ok' | 'alert' | 'danger', label: string }) => {
+  const colors = { 
+    ok: { dot: 'bg-jengibre-green', text: 'text-jengibre-green', bg: 'bg-jengibre-green/5' }, 
+    alert: { dot: 'bg-jengibre-amber', text: 'text-jengibre-amber', bg: 'bg-jengibre-amber/5' }, 
+    danger: { dot: 'bg-jengibre-red', text: 'text-jengibre-red', bg: 'bg-jengibre-red/5' } 
+  };
+  const current = colors[status];
+  
+  return (
+    <div className={`border border-jengibre-border p-4 rounded-2xl flex items-center gap-4 bg-white transition-all hover:border-gray-300 shadow-sm`}>
+      <div className={`w-3 h-3 rounded-full shrink-0 animate-pulse ${current.dot}`} />
+      <div className="flex-1 min-w-0">
+        <p className="text-[10px] font-bold text-gray-400 uppercase tracking-widest mb-1 truncate">{title}</p>
+        <div className="flex items-baseline gap-2">
+          <span className="text-lg font-mono font-bold text-gray-900 truncate">{value}</span>
+          <span className={`text-[9px] font-bold px-1.5 py-0.5 rounded whitespace-nowrap ${current.bg} ${current.text}`}>{label}</span>
+        </div>
+      </div>
+    </div>
+  );
+};
 
 export default function Dashboard() {
   const { data: cotizacionData } = useCotizacionOficial();
   const cotizacion = cotizacionData || 1000;
 
-  // Queries
-  const { data: movimientos, isLoading: loadingMov } = useQuery({
-    queryKey: ['movimientos_dash'],
+  const { data: movimientos } = useQuery({
+    queryKey: ['movimientos'],
     queryFn: async () => {
       const { data, error } = await supabase.from('movimientos').select('*');
       if (error) throw error;
       return data;
-    }
-  });
-
-  const { data: configCuentas } = useQuery({
-    queryKey: ['configuracion', 'cuentas_caja'],
-    queryFn: async () => {
-      const { data } = await supabase.from('configuracion').select('valor').eq('clave', 'cuentas_caja').maybeSingle();
-      return data?.valor ? JSON.parse(data.valor) : ['MP Vir', 'MP Mauro', 'MP Fondo', 'USD'];
     }
   });
 
@@ -35,193 +67,303 @@ export default function Dashboard() {
     }
   });
 
-  const { data: facturas, isLoading: loadingFacturas } = useQuery({
-    queryKey: ['facturacion_dash'],
+  const { data: clientes } = useQuery({
+    queryKey: ['clientes_dashboard'],
+    queryFn: async () => {
+      const { data, error } = await supabase.from('clientes').select('*').eq('estado', 'activo');
+      if (error) throw error;
+      return data;
+    }
+  });
+
+  const { data: recuperos } = useQuery({
+    queryKey: ['recuperos_dashboard'],
+    queryFn: async () => {
+      const { data, error } = await supabase.from('recuperos').select('*').eq('estado', 'pendiente');
+      if (error) throw error;
+      return data;
+    }
+  });
+
+  const { data: configRows } = useQuery({
+    queryKey: ['configuracion_dashboard_reserva'],
+    queryFn: async () => {
+      const { data } = await supabase.from('configuracion').select('*').in('clave', [
+        'costo_direccion_mensual', 
+        'gastos_fijos_estimados',
+        'extra_reserva_mensual'
+      ]);
+      return data || [];
+    }
+  });
+
+  const { data: facturas } = useQuery({
+    queryKey: ['facturacion'],
     queryFn: async () => {
       const { data, error } = await supabase.from('facturacion').select('*');
       if (error) throw error;
-      return data;
+      return data || [];
     }
   });
 
-  const { data: equipo, isLoading: loadingEquipo } = useQuery({
-    queryKey: ['equipo_dash'],
+  const { data: equipo } = useQuery({
+    queryKey: ['equipo'],
     queryFn: async () => {
       const { data, error } = await supabase.from('equipo').select('*').eq('activo', true);
       if (error) throw error;
-      return data;
+      return data || [];
     }
   });
 
-  const { data: clientes, isLoading: loadingClientes } = useQuery({
-    queryKey: ['clientes_dash'],
-    queryFn: async () => {
-      const { data, error } = await supabase.from('clientes').select('id, estado');
-      if (error) throw error;
-      return data;
-    }
-  });
-
-  // Cálculos
   const stats = useMemo(() => {
-    if (!configCuentas || !movimientos || !facturas || !equipo || !clientes) return null;
+    if (!movimientos || !clientes || !configRows || !facturas || !equipo) return null;
 
-    const porCuenta = configCuentas.map((nombre: string) => {
-      const esUSD = nombre.toUpperCase().includes('USD') || nombre.toUpperCase().includes('DÓLAR');
-      const saldoInicial = Number(configSaldos?.[nombre] || 0);
+    const saldosCalc: Record<string, number> = {};
+    const saldosIniciales = configSaldos || {};
+    
+    Object.entries(saldosIniciales).forEach(([cuenta, monto]) => {
+      if (cuenta !== 'IVA') {
+        saldosCalc[cuenta] = Number(monto);
+      }
+    });
+
+    let ingresosMes = 0;
+    let costosMes = 0;
+    let ingresosYTD = 0;
+    let costosYTD = 0;
+
+    const now = new Date();
+    const currentMonthPrefix = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
+    const currentYearPrefix = now.getFullYear().toString();
+    const hoyStr = now.toISOString().split('T')[0];
+
+    movimientos.forEach(m => {
+      if (m.cuenta === 'IVA') return;
       
-      const movsCuenta = movimientos.filter(m => m.cuenta === nombre);
-      const totalMovs = movsCuenta.reduce((acc, m) => {
-        if (m.tipo === 'ingreso') return acc + Number(m.monto);
-        if (m.tipo === 'egreso') return acc - Number(m.monto);
-        return acc;
-      }, 0);
-
-      const saldoActual = saldoInicial + totalMovs;
-      const saldoARS = esUSD ? saldoActual * cotizacion : saldoActual;
+      let isUSD = false;
+      try { const p = JSON.parse(m.notas || '{}'); if (p.moneda === 'USD') isUSD = true; } catch(e){}
       
-      return { nombre, esUSD, saldo: saldoActual, saldoARS };
-    }).filter((c: any) => c.nombre.toUpperCase() !== 'IVA');
+      const valorEnPesos = isUSD ? Number(m.monto) * cotizacion : Number(m.monto);
+      const factor = m.tipo === 'ingreso' ? 1 : -1;
 
-    const liquidezTotal = porCuenta.reduce((acc: number, c: any) => acc + c.saldoARS, 0);
+      if (!saldosCalc[m.cuenta]) saldosCalc[m.cuenta] = 0;
 
-    const hoyStr = getLocalDateString().substring(0, 7);
-    const facturasPendientes = facturas
+      if (m.tipo === 'transferencia' && m.cuenta_destino) {
+        if (m.cuenta_destino === 'IVA') {
+          saldosCalc[m.cuenta] -= valorEnPesos;
+        } else {
+          if (!saldosCalc[m.cuenta_destino]) saldosCalc[m.cuenta_destino] = 0;
+          saldosCalc[m.cuenta] -= valorEnPesos;
+          saldosCalc[m.cuenta_destino] += valorEnPesos;
+        }
+      } else {
+        saldosCalc[m.cuenta] += valorEnPesos * factor;
+        
+        if (m.fecha.startsWith(currentMonthPrefix)) {
+          if (m.tipo === 'ingreso') ingresosMes += valorEnPesos;
+          else costosMes += valorEnPesos;
+        }
+        if (m.fecha.startsWith(currentYearPrefix)) {
+          if (m.tipo === 'ingreso') ingresosYTD += valorEnPesos;
+          else costosYTD += valorEnPesos;
+        }
+      }
+    });
+
+    const totalCajaARS = Object.values(saldosCalc).reduce((a, b) => a + b, 0);
+    
+    // Lógica de Monto Real Hoy (Sincronizada con Salud Financiera)
+    const ingresosPendientes = facturas
       .filter(f => f.estado !== 'pagado' && f.mes <= hoyStr)
-      .reduce((acc, f) => acc + parseFinancial(f.monto_final || f.monto_base), 0);
-
-    const honorariosPendientes = equipo.reduce((acc, m) => {
-      const notas = typeof m.notas === 'string' ? parseNotas(m.notas) : (m.notas || {});
-      const asignaciones = notas.asignaciones || {};
-      const totalAsignaciones = Object.entries(asignaciones).reduce((a: number, [cId, monto]: [string, any]) => {
-        const c = clientes.find(cl => cl.id === cId);
-        if (c && c.estado === 'activo') return a + Number(monto || 0);
-        return a;
+      .reduce((acc, f) => {
+        const desc = parseDescripcion(f.descripcion);
+        const final = Number(f.monto_final || f.monto_base || 0);
+        const cobrado = desc.monto_pagado + desc.retencion_ganancias + desc.retencion_iva + desc.monto_retenido;
+        return parseFinancial(acc + (final - cobrado));
       }, 0);
-      return acc + Number(m.honorario_mensual || 0) + totalAsignaciones;
+
+    const totalEquipoMes = equipo.reduce((acc, e) => {
+      const notas = parseNotas(e.notas);
+      let totalMiembro = parseFinancial(e.honorario_mensual || 0);
+      Object.entries(notas.asignaciones).forEach(([cId, monto]) => {
+        if (clientes.find(c => c.id === cId)) totalMiembro = parseFinancial(totalMiembro + Number(monto));
+      });
+      return parseFinancial(acc + totalMiembro);
     }, 0);
 
-    const montoReal = liquidezTotal + facturasPendientes - honorariosPendientes;
+    const pagadoEquipoMes = movimientos
+      .filter(m =>
+        m.tipo === 'egreso' &&
+        m.concepto === 'Honorarios Equipo' &&
+        m.fecha?.startsWith(currentMonthPrefix)
+      )
+      .reduce((acc, m) => parseFinancial(acc + Number(m.monto)), 0);
 
-    return { liquidezTotal, facturasPendientes, honorariosPendientes, montoReal, porCuenta };
-  }, [configCuentas, configSaldos, movimientos, facturas, equipo, cotizacion]);
+    const egresosEquipoPendientes = Math.max(0, parseFinancial(totalEquipoMes - pagadoEquipoMes));
+    const montoRealHoy = parseFinancial(totalCajaARS + ingresosPendientes - egresosEquipoPendientes);
 
-  const ultimosMovimientos = useMemo(() => {
-    if (!movimientos) return [];
-    return [...movimientos].sort((a, b) => new Date(b.fecha).getTime() - new Date(a.fecha).getTime()).slice(0, 5);
-  }, [movimientos]);
+    const gananciaYTD = ingresosYTD - costosYTD;
+    const resultadoMes = ingresosMes - costosMes;
 
-  if (loadingMov || loadingFacturas || loadingEquipo || loadingClientes) {
-    return <div className="flex justify-center py-32"><Loader2 className="w-12 h-12 text-slate-300 animate-spin" /></div>;
-  }
+    const costoDireccion = Number(configRows.find(r => r.clave === 'costo_direccion_mensual')?.valor || 0);
+    const gastosFijos = Number(configRows.find(r => r.clave === 'gastos_fijos_estimados')?.valor || 0);
+    const extraReserva = Number(configRows.find(r => r.clave === 'extra_reserva_mensual')?.valor || 0);
+    
+    const costoMensualReserva = gastosFijos + costoDireccion + extraReserva;
+    const metaFondo = costoMensualReserva * 6;
+    
+    let mrrTotal = 0;
+    let maxAbono = 0;
+    clientes.forEach(c => {
+      const abono = Number(c.monto_ars || 0) + (Number(c.monto_usd || 0) * cotizacion);
+      mrrTotal += abono;
+      if (abono > maxAbono) maxAbono = abono;
+    });
+    
+    const arr = mrrTotal * 12;
+    const ticketPromedio = clientes.length > 0 ? mrrTotal / clientes.length : 0;
+    const concentracion = mrrTotal > 0 ? (maxAbono / mrrTotal) * 100 : 0;
+
+    let minDias = Infinity;
+    clientes.forEach(c => {
+      if (c.fecha_fin) {
+        const diff = Math.ceil((new Date(c.fecha_fin).getTime() - new Date().getTime()) / (1000 * 3600 * 24));
+        if (diff >= 0 && diff < minDias) minDias = diff;
+      }
+    });
+
+    return {
+      saldos: saldosCalc,
+      arr,
+      ticketPromedio,
+      ytd: { ingresos: ingresosYTD, costos: costosYTD, ganancia: gananciaYTD },
+      fondo: { actual: montoRealHoy, meta: metaFondo }, // Usamos montoRealHoy para el fondo
+      mesActual: { ingresos: ingresosMes, costos: costosMes, resultado: resultadoMes },
+      kpis: { ratioEquipo: 0, margenNeto: ingresosMes > 0 ? (resultadoMes/ingresosMes)*100 : 0, concentracion, minDias, fondoRatio: metaFondo > 0 ? (montoRealHoy/metaFondo)*100 : 0 }
+    };
+  }, [movimientos, configSaldos, clientes, cotizacion, configRows, facturas, equipo]);
+
+  if (!stats) return <div className="p-12 text-center">Cargando dashboard...</div>;
+
+  const alertas = [];
+  if (stats.kpis.minDias <= 30) alertas.push({ type: 'amber', title: 'Contrato por vencer', desc: `Un contrato activo vence en ${stats.kpis.minDias} días.` });
+  if (stats.kpis.fondoRatio < 50) alertas.push({ type: 'red', title: 'Fondo de Emergencia Bajo', desc: `Tu reserva cubre menos de la mitad de los 6 meses de seguridad.` });
+  if (recuperos && recuperos.length > 0) alertas.push({ type: 'amber', title: 'Recuperos pendientes', desc: `Tenés ${recuperos.length} recuperos esperando cobranza.` });
 
   return (
-    <div className="animate-in fade-in duration-700 pb-20">
-      <header className="mb-12">
-        <h1 className="text-4xl font-bold tracking-tight text-slate-900">Dashboard</h1>
-        <p className="text-slate-500 mt-1 font-medium">Resumen operativo y financiero de la agencia.</p>
+    <div className="space-y-8 animate-in fade-in duration-700 pb-12">
+      <header className="flex flex-col md:flex-row md:items-center justify-between gap-6">
+        <div>
+          <h1 className="text-4xl font-display font-bold text-jengibre-dark">Hola, Equipo 👋</h1>
+          <p className="text-gray-500 mt-1 font-medium">Resumen ejecutivo de la salud financiera de Jengibre.</p>
+        </div>
+        <div className="flex gap-3">
+          <Link to="/caja" className="bg-jengibre-primary hover:bg-[#a64120] text-white px-6 py-3 rounded-2xl font-bold flex items-center gap-2 transition-all shadow-lg shadow-jengibre-primary/20 active:scale-95">
+            <Plus size={20} /> Cargar movimiento
+          </Link>
+        </div>
       </header>
 
-      {/* Main Stats */}
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-12">
-        <div className="bg-white border border-slate-200 p-8 rounded-[2.5rem] shadow-sm group hover:border-emerald-500/30 transition-all">
-          <div className="flex items-center gap-3 mb-6">
-            <div className="p-2.5 rounded-2xl bg-emerald-50 text-emerald-600"><TrendingUp size={20} /></div>
-            <h3 className="text-[11px] font-bold uppercase tracking-widest text-slate-400">Monto Real Proyectado</h3>
-          </div>
-          <p className="text-3xl font-bold text-slate-900 tracking-tight">{formatARS(stats?.montoReal || 0)}</p>
-          <div className="mt-4 flex items-center gap-2 text-[10px] font-bold text-emerald-600 uppercase tracking-wider">
-            <ArrowUpRight size={14} />
-            <span>Liquidez + Pendientes</span>
-          </div>
-        </div>
-
-        <div className="bg-white border border-slate-200 p-8 rounded-[2.5rem] shadow-sm group hover:border-blue-500/30 transition-all">
-          <div className="flex items-center gap-3 mb-6">
-            <div className="p-2.5 rounded-2xl bg-blue-50 text-blue-600"><Landmark size={20} /></div>
-            <h3 className="text-[11px] font-bold uppercase tracking-widest text-slate-400">Liquidez en Cuentas</h3>
-          </div>
-          <p className="text-3xl font-bold text-slate-900 tracking-tight">{formatARS(stats?.liquidezTotal || 0)}</p>
-          <div className="mt-4 flex items-center gap-2 text-[10px] font-bold text-blue-600 uppercase tracking-wider">
-            <Clock size={14} />
-            <span>Saldo Consolidado</span>
-          </div>
-        </div>
-
-        <div className="bg-white border border-slate-200 p-8 rounded-[2.5rem] shadow-sm group hover:border-rose-500/30 transition-all">
-          <div className="flex items-center gap-3 mb-6">
-            <div className="p-2.5 rounded-2xl bg-rose-50 text-rose-600"><Users size={20} /></div>
-            <h3 className="text-[11px] font-bold uppercase tracking-widest text-slate-400">Compromisos Equipo</h3>
-          </div>
-          <p className="text-3xl font-bold text-slate-900 tracking-tight">{formatARS(stats?.honorariosPendientes || 0)}</p>
-          <div className="mt-4 flex items-center gap-2 text-[10px] font-bold text-rose-600 uppercase tracking-wider">
-            <ArrowDownRight size={14} />
-            <span>Honorarios del Mes</span>
-          </div>
-        </div>
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6">
+        <StatCard title="Proyección Anual (ARR)" value={formatARS(stats.arr)} sub="Facturación bruta proyectada" icon={TrendingUp} colorClass="text-blue-600" bgClass="bg-blue-50" />
+        <StatCard title="Ticket Promedio" value={formatARS(stats.ticketPromedio)} sub="Ingreso base por cliente" icon={Users} colorClass="text-amber-600" bgClass="bg-amber-50" />
+        <StatCard title="Ganancia Real Acum." value={formatARS(stats.ytd.ganancia)} sub="Ingresos - Egresos (Año actual)" icon={Sparkles} colorClass="text-emerald-600" bgClass="bg-emerald-50" />
+        <StatCard title="Fondo de Emergencia" value={formatARS(stats.fondo.actual)} sub={`Meta (6 meses): ${formatARS(stats.fondo.meta)}`} icon={ShieldCheck} colorClass="text-indigo-600" bgClass="bg-indigo-50" />
       </div>
 
-      <div className="grid grid-cols-1 lg:grid-cols-12 gap-8">
-        {/* Cuentas Detalle */}
-        <div className="lg:col-span-8">
-          <div className="bg-white border border-slate-200 rounded-[2.5rem] p-8 shadow-sm">
-            <div className="flex items-center justify-between mb-8">
-              <h2 className="text-lg font-bold text-slate-900 tracking-tight">Estado de Cuentas</h2>
-              <button className="text-[10px] font-bold uppercase tracking-widest text-slate-400 hover:text-slate-600 transition-colors">Ver Todas</button>
-            </div>
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
+        <div className="lg:col-span-2 space-y-8">
+          
+          <section className="bg-white border border-jengibre-border rounded-3xl p-6 shadow-sm">
+            <h2 className="text-sm font-bold uppercase tracking-widest text-gray-400 mb-6 flex items-center gap-2">
+              <Landmark size={16} /> Cuentas con mayor liquidez
+            </h2>
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-              {stats?.porCuenta.map((c: any) => (
-                <div key={c.nombre} className="flex items-center justify-between p-5 rounded-2xl bg-slate-50 border border-slate-100 group hover:bg-white hover:border-slate-200 transition-all">
-                  <div className="flex items-center gap-4">
-                    <div className={`p-2.5 rounded-xl ${c.esUSD ? 'bg-blue-100 text-blue-600' : 'bg-white text-slate-400'} shadow-sm`}>
-                      <Wallet size={18} />
-                    </div>
-                    <div>
-                      <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">{c.nombre}</p>
-                      <p className={`text-lg font-bold tracking-tight ${c.esUSD ? 'text-blue-600' : 'text-slate-900'}`}>
-                        {c.esUSD ? formatUSD(c.saldo) : formatARS(c.saldo)}
-                      </p>
-                    </div>
+              {Object.entries(stats.saldos).sort((a,b) => b[1] - a[1]).slice(0, 4).map(([nombre, monto]) => (
+                <div key={nombre} className="bg-gray-50 border border-gray-100 p-5 rounded-2xl flex justify-between items-center group hover:border-jengibre-primary hover:bg-white transition-all">
+                  <div className="min-w-0">
+                    <p className="text-[10px] font-bold text-gray-400 uppercase tracking-widest mb-1 truncate">{nombre}</p>
+                    <p className="text-xl font-mono font-bold text-jengibre-dark truncate">{formatARS(monto)}</p>
                   </div>
-                  {c.esUSD && (
-                    <div className="text-right">
-                      <p className="text-[9px] font-bold text-slate-400 uppercase tracking-tighter">ARS EQ.</p>
-                      <p className="text-xs font-bold text-slate-500">{formatARS(c.saldoARS)}</p>
-                    </div>
-                  )}
+                  <div className="p-2 rounded-xl bg-white text-gray-300 group-hover:bg-jengibre-cream group-hover:text-jengibre-primary transition-colors shadow-sm">
+                    <Wallet size={20} />
+                  </div>
                 </div>
               ))}
             </div>
-          </div>
+          </section>
+
+          <section className="bg-white border border-jengibre-border rounded-3xl p-6 shadow-sm">
+            <h2 className="text-sm font-bold uppercase tracking-widest text-gray-400 mb-6 flex items-center gap-2">
+              <Sparkles size={16} /> Métricas de Control
+            </h2>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+              <SemaforoKPI title="Concentración de Riesgo" value={`${stats.kpis.concentracion.toFixed(1)}%`} label={"Máx 30%"} status={stats.kpis.concentracion > 40 ? 'danger' : stats.kpis.concentracion > 30 ? 'alert' : 'ok'} />
+              <SemaforoKPI title="Reserva de Seguridad" value={`${stats.kpis.fondoRatio.toFixed(0)}%`} label={"Meta 100%"} status={stats.kpis.fondoRatio < 30 ? 'danger' : stats.kpis.fondoRatio < 80 ? 'alert' : 'ok'} />
+              <SemaforoKPI title="Margen Neto (Mes)" value={`${stats.kpis.margenNeto.toFixed(1)}%`} label={"Mín 25%"} status={stats.kpis.margenNeto < 10 ? 'danger' : stats.kpis.margenNeto < 25 ? 'alert' : 'ok'} />
+              <SemaforoKPI title="Próximo Vencimiento" value={stats.kpis.minDias === Infinity ? '-' : `${stats.kpis.minDias}d`} label={"Mín 60d"} status={stats.kpis.minDias <= 30 ? 'danger' : stats.kpis.minDias <= 60 ? 'alert' : 'ok'} />
+            </div>
+          </section>
         </div>
 
-        {/* Últimos Movimientos */}
-        <div className="lg:col-span-4">
-          <div className="bg-white border border-slate-200 rounded-[2.5rem] p-8 shadow-sm h-full">
-            <h2 className="text-lg font-bold text-slate-900 tracking-tight mb-8">Actividad Reciente</h2>
-            <div className="space-y-6">
-              {ultimosMovimientos.map(m => (
-                <div key={m.id} className="flex items-start gap-4 group">
-                  <div className={`p-2 rounded-xl shrink-0 ${m.tipo === 'ingreso' ? 'bg-emerald-50 text-emerald-600' : 'bg-rose-50 text-rose-600'}`}>
-                    {m.tipo === 'ingreso' ? <ArrowUpRight size={16} /> : <ArrowDownRight size={16} />}
-                  </div>
-                  <div className="min-w-0 flex-1">
-                    <p className="text-sm font-bold text-slate-700 truncate group-hover:text-slate-900 transition-colors">{m.concepto}</p>
-                    <p className="text-[10px] text-slate-400 font-medium uppercase mt-0.5">{new Date(m.fecha).toLocaleDateString()}</p>
-                  </div>
-                  <p className={`text-sm font-bold tracking-tight ${m.tipo === 'ingreso' ? 'text-emerald-600' : 'text-rose-600'}`}>
-                    {m.cuenta.toUpperCase().includes('USD') ? formatUSD(m.monto) : formatARS(m.monto)}
-                  </p>
+        <div className="space-y-8">
+          <section className="bg-jengibre-dark text-white rounded-3xl p-8 shadow-xl relative overflow-hidden">
+            <div className="absolute top-0 right-0 p-4 opacity-10"><TrendingUp size={80} /></div>
+            <h2 className="text-xl font-display font-bold mb-6 relative z-10">Cierre del Mes</h2>
+            <div className="space-y-6 relative z-10">
+              <div className="flex justify-between items-end">
+                <div>
+                  <p className="text-[10px] font-bold text-gray-400 uppercase tracking-widest mb-1">Ingresos Cobrados</p>
+                  <p className="text-2xl font-mono font-bold text-jengibre-secondary">{formatARS(stats.mesActual.ingresos)}</p>
                 </div>
-              ))}
-              {ultimosMovimientos.length === 0 && (
-                <div className="text-center py-12">
-                  <p className="text-xs font-bold text-slate-300 uppercase tracking-widest">Sin movimientos</p>
+                <ArrowDownRight className="text-jengibre-secondary mb-1" size={20} />
+              </div>
+              <div className="flex justify-between items-end">
+                <div>
+                  <p className="text-[10px] font-bold text-gray-400 uppercase tracking-widest mb-1">Costos Pagados</p>
+                  <p className="text-2xl font-mono font-bold text-red-400">{formatARS(stats.mesActual.costos)}</p>
                 </div>
+                <ArrowUpRight className="text-red-400 mb-1" size={20} />
+              </div>
+              <div className="pt-4 border-t border-white/10">
+                <p className="text-[10px] font-bold text-gray-400 uppercase tracking-widest mb-1">Resultado Neto</p>
+                <p className={`text-3xl font-mono font-bold ${stats.mesActual.resultado < 0 ? 'text-red-400' : 'text-white'}`}>
+                  {formatARS(stats.mesActual.resultado)}
+                </p>
+              </div>
+            </div>
+          </section>
+
+          <section className="bg-white border border-jengibre-border rounded-3xl p-6 shadow-sm">
+            <h2 className="text-sm font-bold uppercase tracking-widest text-gray-400 mb-4 flex items-center gap-2">
+              <AlertCircle size={16} /> Centro de Atención
+            </h2>
+            <div className="space-y-3">
+              {alertas.length === 0 ? (
+                <div className="bg-emerald-50 border border-emerald-100 p-5 rounded-2xl flex items-start gap-4">
+                  <div className="bg-emerald-500 text-white p-1.5 rounded-full shrink-0"><CheckCircle2 size={16} /></div>
+                  <div>
+                    <p className="font-bold text-emerald-900 text-sm">¡Todo en orden!</p>
+                    <p className="text-emerald-700 text-xs mt-1">No hay alertas críticas para hoy.</p>
+                  </div>
+                </div>
+              ) : (
+                alertas.map((alerta, i) => (
+                  <div key={i} className={`bg-white border p-5 rounded-2xl flex items-start gap-4 shadow-sm ${
+                    alerta.type === 'red' ? 'border-red-100' : 'border-amber-100'
+                  }`}>
+                    <div className={`p-1.5 rounded-full shrink-0 ${alerta.type === 'red' ? 'bg-red-500 text-white' : 'bg-amber-500 text-white'}`}>
+                      <AlertCircle size={16} />
+                    </div>
+                    <div>
+                      <p className="font-bold text-gray-800 text-sm">{alerta.title}</p>
+                      <p className="text-gray-500 text-xs mt-1 leading-relaxed">{alerta.desc}</p>
+                    </div>
+                  </div>
+                ))
               )}
             </div>
-            <button className="w-full mt-10 py-4 rounded-2xl border border-slate-100 text-[10px] font-bold uppercase tracking-widest text-slate-400 hover:bg-slate-50 transition-all">Ver Historial Completo</button>
-          </div>
+          </section>
         </div>
       </div>
     </div>

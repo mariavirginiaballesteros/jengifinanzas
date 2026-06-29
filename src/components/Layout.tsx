@@ -1,72 +1,159 @@
-import React from 'react';
-import { NavLink, useLocation, Outlet } from 'react-router-dom';
-import { LayoutDashboard, Wallet, HeartPulse, Users, FileText, Receipt, ShoppingCart, LogOut, Calculator } from 'lucide-react';
-
-const menuItems = [
-  { icon: LayoutDashboard, label: 'Dashboard', path: '/' },
-  { icon: Wallet, label: 'Caja', path: '/caja' },
-  { icon: HeartPulse, label: 'Salud Financiera', path: '/salud' },
-  { icon: Users, label: 'Clientes', path: '/clientes' },
-  { icon: FileText, label: 'Facturación', path: '/facturacion' },
-  { icon: Calculator, label: 'Cotizador', path: '/cotizador' },
-  { icon: Users, label: 'Equipo', path: '/equipo' },
-  { icon: Receipt, label: 'Recuperos', path: '/recuperos' },
-  { icon: ShoppingCart, label: 'Compras', path: '/compras' },
-];
+import React, { useState } from 'react';
+import { Outlet, NavLink, Navigate } from 'react-router-dom';
+import { useAuth } from '@/contexts/AuthContext';
+import { 
+  Home, Briefcase, Users, DollarSign, RefreshCw, 
+  ShoppingCart, TrendingUp, Heart, MessageSquare, 
+  Settings, LogOut, Menu, X, FileText, Calculator, Wallet
+} from 'lucide-react';
+import { cn } from '@/lib/utils';
 
 export default function Layout() {
-  const location = useLocation();
+  const { session, isLoading, signOut } = useAuth();
+  const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
+
+  if (isLoading) return <div className="min-h-screen bg-jengibre-cream" />;
+  if (!session) return <Navigate to="/login" replace />;
+
+  const navItems = [
+    { to: "/", icon: <Home size={20} />, label: "Dashboard" },
+    { to: "/caja", icon: <DollarSign size={20} />, label: "Caja" },
+    { to: "/salud", icon: <Heart size={20} />, label: "Salud Financiera" },
+    { to: "/clientes", icon: <Briefcase size={20} />, label: "Clientes" },
+    { to: "/facturacion", icon: <FileText size={20} />, label: "Facturación" },
+    { to: "/equipo", icon: <Users size={20} />, label: "Equipo" },
+    { to: "/recuperos", icon: <RefreshCw size={20} />, label: "Recuperos" },
+    { to: "/compras", icon: <ShoppingCart size={20} />, label: "Compras" },
+    { to: "/proyeccion", icon: <TrendingUp size={20} />, label: "Proyección" },
+    { to: "/cashflow", icon: <Wallet size={20} />, label: "Cashflow" },
+    { to: "/cotizador", icon: <Calculator size={20} />, label: "Cotizador" },
+    { to: "/contadora", icon: <MessageSquare size={20} />, label: "Contadora" },
+    { to: "/configuracion", icon: <Settings size={20} />, label: "Configuración" },
+  ];
 
   return (
-    <div className="flex min-h-screen bg-slate-50 font-sans text-slate-900">
-      {/* Sidebar */}
-      <aside className="w-72 bg-slate-900 text-white flex flex-col sticky top-0 h-screen shadow-2xl z-40">
-        <div className="p-10">
-          <div className="bg-white/5 rounded-3xl p-6 border border-white/10 flex flex-col items-center text-center group hover:bg-white/10 transition-all">
-            <div className="w-16 h-16 bg-white rounded-2xl flex items-center justify-center mb-4 shadow-lg group-hover:scale-105 transition-transform overflow-hidden">
-              <img 
-                src="/logo.jpg" 
-                alt="Jengibre" 
-                className="w-full h-full object-cover" 
-                onError={(e) => {
-                  (e.target as HTMLImageElement).src = 'https://ui-avatars.com/api/?name=J&background=0f172a&color=fff';
-                }} 
-              />
-            </div>
-            <p className="text-[10px] font-bold uppercase tracking-[0.2em] text-white/40 mb-1">Software de Gestión</p>
-            <h2 className="text-xs font-bold text-jengibre-secondary uppercase tracking-widest">Calidad Jengibre</h2>
+    <div className="flex h-screen overflow-hidden bg-[#F4F5F7] relative">
+      {/* SIDEBAR DESKTOP */}
+      <nav 
+        className="w-72 text-white hidden md:flex flex-col flex-shrink-0 relative z-20 border-r border-white/10 shadow-2xl bg-cover bg-left"
+        style={{ backgroundColor: '#2B317A', backgroundImage: "url('/fondo.jpg')" }}
+      >
+        <div className="absolute inset-0 bg-[#2B317A]/90 z-0"></div>
+        
+        <div className="p-8 flex flex-col items-center text-center gap-4 border-b border-white/10 relative z-10">
+          <div className="w-32 h-32 rounded-2xl shadow-xl overflow-hidden bg-[#2B317A] shrink-0 border border-white/20">
+            <img 
+              src="/logo.jpg" 
+              alt="Jengibre Logo" 
+              className="w-full h-full object-cover" 
+            />
+          </div>
+          <div className="mt-2 space-y-1">
+            <p className="text-[10px] text-gray-300 uppercase tracking-widest leading-tight font-medium">
+              Software de Gestión
+            </p>
+            <p className="text-xs font-bold text-jengibre-secondary uppercase tracking-widest">
+              Calidad Jengibre
+            </p>
           </div>
         </div>
-
-        <nav className="flex-1 px-6 space-y-1 overflow-y-auto custom-scrollbar pb-10">
-          {menuItems.map((item) => (
+        
+        <div className="flex-1 overflow-y-auto py-6 flex flex-col gap-1 px-4 relative z-10 custom-scrollbar">
+          {navItems.map((item) => (
             <NavLink
-              key={item.path}
-              to={item.path}
-              className={({ isActive }) => `
-                flex items-center gap-4 px-5 py-4 rounded-2xl transition-all duration-300 group
-                ${isActive 
-                  ? 'bg-jengibre-primary text-white shadow-lg shadow-jengibre-primary/20' 
-                  : 'text-white/50 hover:text-white hover:bg-white/5'}
-              `}
+              key={item.to}
+              to={item.to}
+              className={({ isActive }) => cn(
+                "flex items-center gap-3 px-4 py-3 rounded-xl transition-all duration-200",
+                isActive 
+                  ? "bg-jengibre-primary text-white font-bold shadow-md" 
+                  : "text-gray-300 hover:bg-white/10 hover:text-white"
+              )}
             >
-              <item.icon size={20} className="shrink-0" />
-              <span className="text-sm font-bold tracking-tight">{item.label}</span>
+              {item.icon}
+              {item.label}
             </NavLink>
           ))}
-        </nav>
-
-        <div className="p-6 border-t border-white/5">
-          <button className="flex items-center gap-4 px-5 py-4 w-full rounded-2xl text-white/40 hover:text-rose-400 hover:bg-rose-400/10 transition-all group">
-            <LogOut size={20} />
-            <span className="text-sm font-bold tracking-tight">Salir</span>
+        </div>
+        <div className="p-4 border-t border-white/10 relative z-10">
+          <button 
+            onClick={signOut} 
+            className="flex items-center gap-3 w-full px-4 py-3 text-gray-300 hover:bg-red-500/20 hover:text-white rounded-xl transition-colors font-medium"
+          >
+            <LogOut size={20} /> Salir
           </button>
         </div>
-      </aside>
+      </nav>
 
-      {/* Main Content */}
-      <main className="flex-1 p-12 max-w-7xl mx-auto w-full">
-        <Outlet />
+      {/* MOBILE FULL MENU OVERLAY */}
+      {mobileMenuOpen && (
+        <div 
+          className="md:hidden fixed inset-0 z-50 text-white flex flex-col animate-in slide-in-from-left-full duration-300 bg-cover bg-center"
+          style={{ backgroundColor: '#2B317A', backgroundImage: "url('/fondo.jpg')" }}
+        >
+          <div className="absolute inset-0 bg-[#2B317A]/95 z-0"></div>
+          
+          <div className="p-6 flex flex-col items-center justify-center border-b border-white/10 relative z-10">
+            <button onClick={() => setMobileMenuOpen(false)} className="absolute top-4 right-4 p-2 text-gray-300 hover:text-white bg-white/10 rounded-full"><X size={24} /></button>
+            <div className="w-24 h-24 rounded-2xl shadow-xl overflow-hidden bg-[#2B317A] shrink-0 border border-white/20 mb-4">
+              <img 
+                src="/logo.jpg" 
+                alt="Jengibre Logo" 
+                className="w-full h-full object-cover" 
+              />
+            </div>
+            <div className="text-center">
+              <p className="text-[10px] text-gray-300 uppercase tracking-widest leading-tight font-medium">Software de Gestión</p>
+              <p className="text-xs font-bold text-jengibre-secondary uppercase tracking-widest mt-1">Calidad Jengibre</p>
+            </div>
+          </div>
+          
+          <div className="flex-1 overflow-y-auto p-4 flex flex-col gap-2 relative z-10">
+            {navItems.map((item) => (
+              <NavLink
+                key={item.to}
+                to={item.to}
+                onClick={() => setMobileMenuOpen(false)}
+                className={({ isActive }) => cn(
+                  "flex items-center gap-4 px-4 py-3.5 rounded-xl text-lg transition-colors",
+                  isActive ? "bg-jengibre-primary text-white font-bold" : "text-gray-300 active:bg-white/10"
+                )}
+              >
+                {item.icon}
+                {item.label}
+              </NavLink>
+            ))}
+            <button 
+              onClick={() => { setMobileMenuOpen(false); signOut(); }} 
+              className="flex items-center gap-4 px-4 py-4 text-gray-300 hover:text-white mt-auto border-t border-white/10"
+            >
+              <LogOut size={20} /> Salir de la cuenta
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* MOBILE BOTTOM NAV */}
+      <nav className="md:hidden fixed bottom-0 w-full bg-[#2B317A] text-white flex justify-around items-center h-16 z-40 px-2 pb-safe border-t border-white/10 shadow-[0_-4px_20px_rgba(0,0,0,0.3)]">
+        <NavLink to="/" className={({isActive}) => cn("p-3 rounded-full transition-colors", isActive ? "text-jengibre-secondary bg-white/10" : "text-gray-300")}>
+          <Home size={24} />
+        </NavLink>
+        <NavLink to="/facturacion" className={({isActive}) => cn("p-3 rounded-full transition-colors", isActive ? "text-jengibre-secondary bg-white/10" : "text-gray-300")}>
+          <FileText size={24} />
+        </NavLink>
+        <NavLink to="/clientes" className={({isActive}) => cn("p-3 rounded-full transition-colors", isActive ? "text-jengibre-secondary bg-white/10" : "text-gray-300")}>
+          <Briefcase size={24} />
+        </NavLink>
+        <button onClick={() => setMobileMenuOpen(true)} className="p-3 text-gray-300 rounded-full hover:bg-white/10 transition-colors">
+          <Menu size={24} />
+        </button>
+      </nav>
+
+      {/* MAIN CONTENT AREA */}
+      <main className="flex-1 overflow-y-auto flex flex-col pb-16 md:pb-0 z-10 bg-[#F4F5F7]">
+        <div className="flex-1 p-4 md:p-8 max-w-7xl mx-auto w-full">
+          <Outlet />
+        </div>
       </main>
     </div>
   );

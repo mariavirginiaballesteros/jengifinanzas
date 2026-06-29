@@ -1,7 +1,8 @@
 import React, { useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { supabase } from '@/integrations/supabase/client';
-import { Plus, Edit2, Trash2, MessageCircle, FileText, CheckCircle2, Clock, Search, X, Loader2 } from 'lucide-react';
+import { TipAlert } from '@/components/TipAlert';
+import { Plus, Edit2, Trash2, MessageCircle, FileText, CheckCircle2, Clock } from 'lucide-react';
 import { formatARS, getLocalDateString } from '@/lib/utils';
 import { showSuccess, showError } from '@/utils/toast';
 
@@ -9,12 +10,11 @@ export default function Contadora() {
   const queryClient = useQueryClient();
   const [isFormOpen, setIsFormOpen] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
-  const [searchTerm, setSearchTerm] = useState('');
   
   const defaultForm = {
     tipo: 'Emisión de Factura',
     cliente_id: '',
-    periodo: getLocalDateString().slice(0, 7),
+    periodo: getLocalDateString().slice(0, 7), // YYYY-MM
     monto_neto: '',
     referencia: '',
     datos_adicionales: '',
@@ -88,11 +88,11 @@ export default function Contadora() {
     }
   });
 
-  const filteredSolicitudes = solicitudes?.filter(s => 
-    s.tipo.toLowerCase().includes(searchTerm.toLowerCase()) || 
-    s.cliente?.nombre.toLowerCase().includes(searchTerm.toLowerCase()) ||
-    s.referencia?.toLowerCase().includes(searchTerm.toLowerCase())
-  );
+  const handleSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!formData.tipo) return showError('El tipo de solicitud es requerido');
+    saveMutation.mutate(formData);
+  };
 
   const openEdit = (sol: any) => {
     setFormData({
@@ -116,100 +116,202 @@ export default function Contadora() {
 
   const sendWhatsApp = (sol: any) => {
     let msg = `Hola! Te paso un pedido de *${sol.tipo}*:%0A%0A`;
+    
     if (sol.cliente) {
       msg += `*Cliente:* ${sol.cliente.nombre}%0A`;
       if (sol.cliente.cuit) msg += `*CUIT:* ${sol.cliente.cuit}%0A`;
     }
+    
     if (sol.periodo) msg += `*Período:* ${sol.periodo}%0A`;
     if (sol.monto_neto) msg += `*Monto:* ${formatARS(sol.monto_neto)}%0A`;
-    if (sol.referencia) msg += `*Referencia:* ${sol.referencia}%0A`;
+    if (sol.referencia) msg += `*Referencia/Concepto:* ${sol.referencia}%0A`;
+    if (sol.datos_adicionales) msg += `*Notas:* ${sol.datos_adicionales}%0A`;
+    
     msg += `%0AQuedo atento/a, gracias!`;
+    
     window.open(`https://wa.me/?text=${msg}`, '_blank');
   };
 
   return (
-    <div className="animate-in fade-in duration-700 pb-20">
-      <header className="flex flex-col sm:flex-row sm:items-center justify-between gap-6 mb-12">
+    <div className="animate-in fade-in duration-500 pb-12 w-full">
+      <header className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-8">
         <div>
-          <h1 className="text-4xl font-bold tracking-tight text-slate-900">Módulo Contadora</h1>
-          <p className="text-slate-500 mt-1 font-medium">Gestión de solicitudes de facturación e impuestos.</p>
+          <h1 className="text-3xl font-display font-bold text-jengibre-dark">Módulo Contadora</h1>
+          <p className="text-gray-600 mt-1">Gestión de solicitudes de facturación, impuestos y trámites.</p>
         </div>
-        <button onClick={() => setIsFormOpen(true)} className="bg-slate-900 hover:bg-slate-800 text-white px-8 py-4 rounded-2xl font-bold text-sm flex items-center gap-3 transition-all shadow-lg shadow-slate-900/10 active:scale-95">
-          <Plus size={18} /> Nueva Solicitud
+        <button 
+          onClick={() => setIsFormOpen(true)}
+          className="bg-jengibre-primary hover:bg-[#a64120] text-white px-5 py-2.5 rounded-xl font-medium flex items-center gap-2 shadow-sm"
+        >
+          <Plus size={20} /> Nueva Solicitud
         </button>
       </header>
 
-      <div className="grid grid-cols-1 lg:grid-cols-4 gap-6 mb-10">
-        <div className="lg:col-span-3 relative group">
-          <Search className="absolute left-5 top-1/2 -translate-y-1/2 text-slate-400 group-focus-within:text-slate-600 transition-colors" size={18} />
-          <input type="text" placeholder="Buscar por tipo, cliente o referencia..." className="w-full bg-white border border-slate-200 rounded-xl py-3.5 pl-12 pr-6 outline-none focus:ring-2 focus:ring-slate-200 transition-all font-medium text-sm" value={searchTerm} onChange={e => setSearchTerm(e.target.value)} />
-        </div>
-        <div className="bg-white border border-slate-200 rounded-xl p-4 flex items-center justify-between shadow-sm">
-          <div className="flex items-center gap-3">
-            <div className="p-2 rounded-lg bg-slate-50 text-slate-400"><Clock size={18} /></div>
-            <span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Pendientes</span>
-          </div>
-          <span className="text-xl font-bold text-slate-900">{filteredSolicitudes?.filter(s => s.estado === 'pendiente').length || 0}</span>
-        </div>
-      </div>
+      <TipAlert id="contadora_intro" title="💡 Centralizá los pedidos a tu Estudio Contable">
+        Creá el requerimiento, hacé clic en el ícono de WhatsApp para enviarle la info ordenada a tu contadora y luego marcá la tarea como "Completada" cuando te envíe el comprobante.
+      </TipAlert>
 
-      <div className="bg-white border border-slate-200 rounded-[2.5rem] overflow-hidden shadow-sm">
+      {/* FORMULARIO MODAL */}
+      {isFormOpen && (
+        <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4">
+          <div className="bg-white rounded-2xl w-full max-w-lg p-6 shadow-xl animate-in zoom-in-95 max-h-[90vh] overflow-y-auto">
+            <h2 className="text-2xl font-display font-bold mb-6 flex items-center gap-2">
+              <FileText className="text-jengibre-primary" />
+              {editingId ? 'Editar Solicitud' : 'Nueva Solicitud'}
+            </h2>
+            
+            <form onSubmit={handleSubmit} className="space-y-4">
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">Tipo de Trámite</label>
+                  <select 
+                    className="w-full border border-gray-300 rounded-lg p-2.5 focus:ring-2 focus:ring-jengibre-primary outline-none bg-white"
+                    value={formData.tipo} onChange={e => setFormData({...formData, tipo: e.target.value})}
+                    required
+                  >
+                    <option value="Emisión de Factura">Emisión de Factura</option>
+                    <option value="Generación de VEP (AFIP)">Generación de VEP (AFIP)</option>
+                    <option value="Liquidación de Sueldos">Liquidación de Sueldos</option>
+                    <option value="Alta/Baja de Empleado">Alta/Baja de Empleado</option>
+                    <option value="Consulta General">Consulta General</option>
+                    <option value="Otro">Otro</option>
+                  </select>
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">Período (Mes/Año)</label>
+                  <input 
+                    type="month"
+                    className="w-full border border-gray-300 rounded-lg p-2.5 focus:ring-2 focus:ring-jengibre-primary outline-none bg-white"
+                    value={formData.periodo} onChange={e => setFormData({...formData, periodo: e.target.value})}
+                  />
+                </div>
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Cliente Asociado (Opcional)</label>
+                <select 
+                  className="w-full border border-gray-300 rounded-lg p-2.5 focus:ring-2 focus:ring-jengibre-primary outline-none bg-white"
+                  value={formData.cliente_id} onChange={e => setFormData({...formData, cliente_id: e.target.value})}
+                >
+                  <option value="">-- Trámite Interno / Sin Cliente --</option>
+                  {clientes?.map((c:any) => <option key={c.id} value={c.id}>{c.nombre} (CUIT: {c.cuit || 'N/A'})</option>)}
+                </select>
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Concepto / Referencia</label>
+                <input 
+                  type="text" placeholder="Ej: Honorarios mes de Julio"
+                  className="w-full border border-gray-300 rounded-lg p-2.5 focus:ring-2 focus:ring-jengibre-primary outline-none bg-white"
+                  value={formData.referencia} onChange={e => setFormData({...formData, referencia: e.target.value})}
+                />
+              </div>
+
+              <div className="bg-gray-50 p-3 rounded-xl border border-gray-100">
+                <div>
+                  <label className="block text-xs font-bold text-gray-600 uppercase tracking-wider mb-1">Monto</label>
+                  <div className="relative">
+                    <span className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-500 font-bold">$</span>
+                    <input
+                      type="number" step="0.01"
+                      className="w-full border border-gray-300 rounded-lg p-2.5 pl-8 focus:ring-2 focus:ring-jengibre-primary outline-none bg-white"
+                      value={formData.monto_neto} onChange={e => setFormData({...formData, monto_neto: e.target.value})}
+                    />
+                  </div>
+                </div>
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Notas Adicionales</label>
+                <textarea 
+                  rows={2} placeholder="Datos extra, observaciones, etc."
+                  className="w-full border border-gray-300 rounded-lg p-2.5 focus:ring-2 focus:ring-jengibre-primary outline-none bg-white"
+                  value={formData.datos_adicionales} onChange={e => setFormData({...formData, datos_adicionales: e.target.value})}
+                />
+              </div>
+
+              <div className="flex justify-end gap-3 mt-6 pt-4 border-t border-gray-100">
+                <button type="button" onClick={closeForm} className="px-4 py-2 text-gray-600 hover:bg-gray-100 rounded-lg font-medium transition-colors">Cancelar</button>
+                <button type="submit" disabled={saveMutation.isPending} className="bg-jengibre-primary hover:bg-[#a64120] text-white px-6 py-2 rounded-lg font-medium transition-colors disabled:opacity-50">
+                  {saveMutation.isPending ? 'Guardando...' : 'Guardar Solicitud'}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* LISTADO DE SOLICITUDES */}
+      <div className="bg-white border border-jengibre-border rounded-2xl overflow-hidden shadow-sm">
         {isLoading ? (
-          <div className="flex justify-center py-32"><Loader2 className="w-12 h-12 text-slate-200 animate-spin" /></div>
+           <div className="flex justify-center py-12"><div className="w-8 h-8 border-4 border-jengibre-primary border-t-transparent rounded-full animate-spin"></div></div>
+        ) : solicitudes?.length === 0 ? (
+          <div className="p-12 text-center">
+            <div className="bg-gray-50 w-16 h-16 rounded-full flex items-center justify-center mx-auto mb-4 text-gray-400"><FileText size={32} /></div>
+            <h3 className="text-xl font-bold text-gray-800 mb-2">Sin solicitudes</h3>
+            <p className="text-gray-500 mb-4">No hay pedidos pendientes para el estudio contable.</p>
+            <button onClick={() => setIsFormOpen(true)} className="text-jengibre-primary font-bold hover:underline">+ Crear el primero</button>
+          </div>
         ) : (
           <div className="overflow-x-auto">
-            <table className="w-full text-left border-collapse">
+            <table className="w-full text-left border-collapse whitespace-nowrap">
               <thead>
-                <tr className="bg-slate-50/50 text-slate-400 text-[10px] font-bold uppercase tracking-[0.15em] border-b border-slate-100">
-                  <th className="px-8 py-5">Fecha / Período</th>
-                  <th className="px-8 py-5">Tipo de Solicitud</th>
-                  <th className="px-8 py-5">Cliente</th>
-                  <th className="px-8 py-5 text-right">Monto</th>
-                  <th className="px-8 py-5 text-center">Estado</th>
-                  <th className="px-8 py-5 text-center">Acciones</th>
+                <tr className="bg-jengibre-cream/50 text-jengibre-dark text-sm border-b border-jengibre-border">
+                  <th className="px-4 py-3 font-bold">Fecha / Período</th>
+                  <th className="px-4 py-3 font-bold">Tipo de Solicitud</th>
+                  <th className="px-4 py-3 font-bold">Cliente</th>
+                  <th className="px-4 py-3 font-bold">Concepto / Montos</th>
+                  <th className="px-4 py-3 font-bold text-center">Estado</th>
+                  <th className="px-4 py-3 font-bold text-center">Acciones</th>
                 </tr>
               </thead>
               <tbody>
-                {filteredSolicitudes?.map((sol) => {
+                {solicitudes?.map((sol) => {
                   const isPendiente = sol.estado === 'pendiente';
                   return (
-                    <tr key={sol.id} className={`border-b border-slate-50 hover:bg-slate-50/50 transition-colors group ${!isPendiente ? 'opacity-60' : ''}`}>
-                      <td className="px-8 py-6">
-                        <p className="text-xs font-bold text-slate-900">{sol.periodo || 'N/A'}</p>
-                        <p className="text-[9px] text-slate-400 font-bold uppercase tracking-wider mt-1">Creado: {new Date(sol.created_at).toLocaleDateString()}</p>
+                    <tr key={sol.id} className={`border-b border-gray-100 hover:bg-gray-50 transition-colors group ${!isPendiente ? 'opacity-60 bg-gray-50/50' : ''}`}>
+                      <td className="px-4 py-4">
+                        <p className="text-sm font-bold text-gray-800">{sol.periodo || 'N/A'}</p>
+                        <p className="text-[10px] text-gray-400 uppercase mt-0.5">Creado: {new Date(sol.created_at).toLocaleDateString()}</p>
                       </td>
-                      <td className="px-8 py-6">
-                        <p className="text-sm font-bold text-slate-700">{sol.tipo}</p>
-                        <p className="text-[10px] text-slate-400 font-medium mt-0.5 truncate max-w-[200px]">{sol.referencia || '-'}</p>
-                      </td>
-                      <td className="px-8 py-6">
+                      <td className="px-4 py-4 font-medium text-gray-900">{sol.tipo}</td>
+                      <td className="px-4 py-4">
                         {sol.cliente ? (
                           <>
-                            <p className="text-sm font-bold text-slate-900">{sol.cliente.nombre}</p>
-                            <p className="text-[9px] text-slate-400 font-bold uppercase tracking-tighter mt-0.5">CUIT: {sol.cliente.cuit || 'N/A'}</p>
+                            <p className="font-bold text-jengibre-dark">{sol.cliente.nombre}</p>
+                            {sol.cliente.cuit && <p className="text-xs text-gray-500 font-mono mt-0.5">CUIT: {sol.cliente.cuit}</p>}
                           </>
                         ) : (
-                          <span className="text-xs text-slate-400 italic">Trámite Interno</span>
+                          <span className="text-sm text-gray-400 italic">Trámite Interno</span>
                         )}
                       </td>
-                      <td className="px-8 py-6 text-right">
-                        <p className="text-lg font-bold text-slate-900 tracking-tight">{sol.monto_neto ? formatARS(sol.monto_neto) : '-'}</p>
+                      <td className="px-4 py-4">
+                        <p className="text-sm text-gray-700 truncate max-w-[200px]" title={sol.referencia}>{sol.referencia || '-'}</p>
+                        {sol.monto_neto && (
+                          <div className="flex gap-2 mt-1">
+                            <span className="text-xs font-mono font-bold text-gray-600 bg-gray-100 px-1.5 py-0.5 rounded">Monto: {formatARS(sol.monto_neto)}</span>
+                          </div>
+                        )}
                       </td>
-                      <td className="px-8 py-6 text-center">
+                      <td className="px-4 py-4 text-center">
                         <button 
                           onClick={() => updateEstadoMutation.mutate({ id: sol.id, estado: isPendiente ? 'completado' : 'pendiente' })}
-                          className={`px-3 py-1.5 rounded-lg text-[9px] font-bold uppercase tracking-widest transition-all ${
-                            isPendiente ? 'bg-amber-50 text-amber-600 hover:bg-amber-100' : 'bg-emerald-50 text-emerald-600 hover:bg-emerald-100'
+                          className={`flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-bold uppercase tracking-wider mx-auto transition-colors ${
+                            isPendiente 
+                              ? 'bg-amber-100 text-amber-700 hover:bg-amber-200' 
+                              : 'bg-green-100 text-green-700 hover:bg-green-200'
                           }`}
                         >
+                          {isPendiente ? <Clock size={14} /> : <CheckCircle2 size={14} />}
                           {isPendiente ? 'Pendiente' : 'Listo'}
                         </button>
                       </td>
-                      <td className="px-8 py-6">
-                        <div className="flex items-center justify-center gap-2 opacity-0 group-hover:opacity-100 transition-all">
-                          <button onClick={() => sendWhatsApp(sol)} className="p-2 text-emerald-600 hover:bg-emerald-50 rounded-lg transition-all"><MessageCircle size={16} /></button>
-                          <button onClick={() => openEdit(sol)} className="p-2 text-slate-400 hover:text-blue-600 hover:bg-blue-50 rounded-lg transition-all"><Edit2 size={16} /></button>
-                          <button onClick={() => { if(confirm('¿Eliminar solicitud?')) deleteMutation.mutate(sol.id); }} className="p-2 text-slate-400 hover:text-rose-600 hover:bg-rose-50 rounded-lg transition-all"><Trash2 size={16} /></button>
+                      <td className="px-4 py-4">
+                        <div className="flex items-center justify-center gap-2">
+                          <button onClick={() => sendWhatsApp(sol)} className="p-1.5 text-[#25D366] hover:bg-[#25D366]/10 rounded-lg transition-colors" title="Enviar por WhatsApp"><MessageCircle size={18} /></button>
+                          <div className="w-px h-4 bg-gray-200 mx-1"></div>
+                          <button onClick={() => openEdit(sol)} className="p-1.5 text-gray-400 hover:text-blue-600 hover:bg-blue-50 rounded-lg transition-colors opacity-0 group-hover:opacity-100"><Edit2 size={16} /></button>
+                          <button onClick={() => { if(confirm('¿Eliminar solicitud?')) deleteMutation.mutate(sol.id); }} className="p-1.5 text-gray-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition-colors opacity-0 group-hover:opacity-100"><Trash2 size={16} /></button>
                         </div>
                       </td>
                     </tr>
@@ -220,61 +322,6 @@ export default function Contadora() {
           </div>
         )}
       </div>
-
-      {isFormOpen && (
-        <div className="fixed inset-0 bg-slate-900/40 backdrop-blur-sm z-50 flex items-center justify-center p-4">
-          <div className="bg-white rounded-[2.5rem] w-full max-w-lg p-10 shadow-2xl animate-in zoom-in-95 border border-white/20">
-            <div className="flex justify-between items-center mb-10">
-              <h2 className="text-2xl font-bold tracking-tight text-slate-900">{editingId ? 'Editar Solicitud' : 'Nueva Solicitud'}</h2>
-              <button onClick={closeForm} className="p-2 hover:bg-slate-100 rounded-full transition-colors text-slate-400"><X size={24} /></button>
-            </div>
-            <form onSubmit={(e) => { e.preventDefault(); saveMutation.mutate(formData); }} className="space-y-6">
-              <div className="grid grid-cols-2 gap-6">
-                <div className="space-y-1.5">
-                  <label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest ml-1">Tipo de Trámite</label>
-                  <select className="w-full border border-slate-200 rounded-xl p-3.5 outline-none focus:ring-2 focus:ring-slate-100 font-bold text-slate-700 text-sm bg-white" value={formData.tipo} onChange={e => setFormData({...formData, tipo: e.target.value})} required>
-                    <option value="Emisión de Factura">Emisión de Factura</option>
-                    <option value="Generación de VEP (AFIP)">Generación de VEP (AFIP)</option>
-                    <option value="Liquidación de Sueldos">Liquidación de Sueldos</option>
-                    <option value="Alta/Baja de Empleado">Alta/Baja de Empleado</option>
-                    <option value="Consulta General">Consulta General</option>
-                    <option value="Otro">Otro</option>
-                  </select>
-                </div>
-                <div className="space-y-1.5">
-                  <label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest ml-1">Período</label>
-                  <input type="month" className="w-full border border-slate-200 rounded-xl p-3.5 outline-none focus:ring-2 focus:ring-slate-100 font-bold text-slate-700 text-sm" value={formData.periodo} onChange={e => setFormData({...formData, periodo: e.target.value})} />
-                </div>
-              </div>
-
-              <div className="space-y-1.5">
-                <label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest ml-1">Cliente Asociado</label>
-                <select className="w-full border border-slate-200 rounded-xl p-3.5 outline-none focus:ring-2 focus:ring-slate-100 font-bold text-slate-700 text-sm bg-white" value={formData.cliente_id} onChange={e => setFormData({...formData, cliente_id: e.target.value})}>
-                  <option value="">-- Trámite Interno --</option>
-                  {clientes?.map((c:any) => <option key={c.id} value={c.id}>{c.nombre}</option>)}
-                </select>
-              </div>
-
-              <div className="space-y-1.5">
-                <label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest ml-1">Referencia</label>
-                <input type="text" placeholder="Ej: Honorarios mes de Julio" className="w-full border border-slate-200 rounded-xl p-3.5 outline-none focus:ring-2 focus:ring-slate-100 font-bold text-slate-700 text-sm" value={formData.referencia} onChange={e => setFormData({...formData, referencia: e.target.value})} />
-              </div>
-
-              <div className="space-y-1.5">
-                <label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest ml-1">Monto Neto</label>
-                <input type="number" step="0.01" className="w-full border border-slate-200 rounded-xl p-3.5 outline-none focus:ring-2 focus:ring-slate-100 font-bold text-slate-900 text-lg tracking-tight" value={formData.monto_neto} onChange={e => setFormData({...formData, monto_neto: e.target.value})} />
-              </div>
-
-              <div className="flex justify-end gap-3 mt-10 pt-8 border-t border-slate-100">
-                <button type="button" onClick={closeForm} className="px-6 py-3.5 text-slate-400 font-bold uppercase tracking-widest text-[10px] hover:bg-slate-50 rounded-xl transition-colors">Cancelar</button>
-                <button type="submit" disabled={saveMutation.isPending} className="bg-slate-900 text-white px-8 py-3.5 rounded-xl font-bold uppercase tracking-widest text-[10px] shadow-lg shadow-slate-900/10 active:scale-95 transition-all disabled:opacity-50">
-                  {saveMutation.isPending ? 'Guardando...' : 'Guardar Solicitud'}
-                </button>
-              </div>
-            </form>
-          </div>
-        </div>
-      )}
     </div>
   );
 }
