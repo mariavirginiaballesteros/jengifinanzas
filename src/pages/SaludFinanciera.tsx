@@ -447,59 +447,59 @@ export default function SaludFinanciera() {
             <button onClick={() => setIsConfigOpen(true)} className="p-2 text-gray-400 hover:text-jengibre-primary hover:bg-jengibre-cream rounded-full transition-colors"><Settings size={20} /></button>
           </div>
           
-          <div className="bg-gray-50 p-5 rounded-xl border border-gray-200 mb-6">
+          <div className="bg-gray-50 p-5 rounded-2xl border border-gray-200 mb-6">
             <div className="flex justify-between items-start mb-4">
               <div>
-                <p className="text-[10px] font-bold text-gray-400 uppercase tracking-widest mb-1">Monto Real Proyectado (Hoy)</p>
+                <p className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-1">Monto Real Proyectado (Hoy)</p>
                 <div className="flex items-center gap-2">
-                  <p className="text-3xl font-mono font-bold text-jengibre-dark">{formatARS(montoRealHoy)}</p>
+                  <p className="text-3xl font-bold text-gray-900 tracking-tight">{formatARS(montoRealHoy)}</p>
                 </div>
-                <div className="mt-3 space-y-1.5">
-                  <div className="flex items-center justify-between text-[11px] text-gray-500 border-b border-gray-200 pb-1">
+                <div className="mt-4 space-y-2">
+                  <div className="flex items-center justify-between text-xs text-gray-500 border-b border-gray-100 pb-1.5">
                     <span>Saldo en Cuentas:</span>
-                    <span className="font-mono font-bold">{formatARS(totalCajaARS)}</span>
+                    <span className="font-semibold">{formatARS(totalCajaARS)}</span>
                   </div>
-                  <div className="flex items-center justify-between text-[11px] text-green-600 border-b border-gray-200 pb-1">
+                  <div className="flex items-center justify-between text-xs text-emerald-600 border-b border-emerald-50/50 pb-1.5">
                     <span>(+) Facturas (Vencidas + Mes Actual):</span>
-                    <span className="font-mono font-bold">{formatARS(ingresosPendientes)}</span>
+                    <span className="font-semibold">{formatARS(ingresosPendientes)}</span>
                   </div>
-                  <div className="flex items-center justify-between text-[11px] text-red-500">
+                  <div className="flex items-center justify-between text-xs text-rose-500">
                     <span>(-) Honorarios Pendientes:</span>
-                    <span className="font-mono font-bold">{formatARS(egresosEquipoPendientes)}</span>
+                    <span className="font-semibold">{formatARS(egresosEquipoPendientes)}</span>
                   </div>
                 </div>
-                <div className="mt-4 space-y-1">
-                  <p className="text-[10px] text-gray-500 flex items-center gap-1">
-                    <div className="w-1.5 h-1.5 rounded-full bg-blue-400"></div>
-                    Costo Estructural: <span className="font-bold">{formatARS(costoMensualReserva)}</span>
+                <div className="mt-5 space-y-1">
+                  <p className="text-xs text-gray-500 flex items-center gap-1.5">
+                    <div className="w-1.5 h-1.5 rounded-full bg-blue-500"></div>
+                    Costo Estructural: <span className="font-semibold">{formatARS(costoMensualReserva)}</span>
                   </p>
-                  <p className="text-[9px] text-gray-400 ml-3 italic">
-                    (Mantenimiento: {formatARS(gastosFijos)} + Sueldo Dir: {formatARS(costoDireccion)} + Extra: {formatARS(extraReserva)})
+                  <p className="text-[10px] text-gray-400 ml-3">
+                    Mantenimiento: {formatARS(gastosFijos)} | Sueldo Dir: {formatARS(costoDireccion)} | Extra: {formatARS(extraReserva)}
                   </p>
                 </div>
               </div>
               <div className="text-right">
-                <p className="text-[10px] font-bold text-jengibre-primary uppercase tracking-widest mb-1">Meta Reserva (6 meses)</p>
-                <p className="text-2xl font-mono font-bold text-jengibre-primary">{formatARS(fondoReservaObjetivo)}</p>
+                <p className="text-xs font-semibold text-indigo-600 uppercase tracking-wider mb-1">Meta Reserva (6 meses)</p>
+                <p className="text-xl font-bold text-indigo-600 tracking-tight">{formatARS(fondoReservaObjetivo)}</p>
               </div>
             </div>
-            <div className="h-3 w-full bg-gray-200 rounded-full mt-4 overflow-hidden">
-              <div className="h-full bg-jengibre-green transition-all duration-1000" style={{ width: `${porcentajeFondo}%` }}></div>
+            <div className="h-2 w-full bg-gray-200 rounded-full mt-5 overflow-hidden">
+              <div className="h-full bg-emerald-500 transition-all duration-1000" style={{ width: `${porcentajeFondo}%` }}></div>
             </div>
-            <div className="flex justify-between items-center mt-2">
-              <p className="text-[10px] text-gray-400 font-bold uppercase tracking-widest">Progreso: {porcentajeFondo.toFixed(1)}%</p>
-              <p className="text-[10px] text-gray-500 font-medium">Faltan {formatARS(Math.max(0, fondoReservaObjetivo - montoRealHoy))} para la meta</p>
+            <div className="flex justify-between items-center mt-2.5">
+              <p className="text-xs text-gray-500 font-semibold uppercase tracking-wider">Progreso: {porcentajeFondo.toFixed(1)}%</p>
+              <p className="text-xs text-gray-500">Faltan {formatARS(Math.max(0, fondoReservaObjetivo - montoRealHoy))} para la meta</p>
             </div>
           </div>
 
           <div className="grid grid-cols-2 gap-4">
-            <div className="p-4 rounded-xl border border-indigo-100 bg-indigo-50/30">
-              <p className="text-xs font-bold text-indigo-600 uppercase mb-1">Excedente Libre</p>
-              <p className="text-2xl font-mono font-bold text-indigo-900">{formatARS(excedente)}</p>
+            <div className="p-4 rounded-2xl border border-indigo-100 bg-indigo-50/50">
+              <p className="text-xs font-semibold text-indigo-600 uppercase tracking-wider mb-1">Excedente Libre</p>
+              <p className="text-2xl font-bold text-indigo-900 tracking-tight">{formatARS(excedente)}</p>
             </div>
-            <div className="p-4 rounded-xl border border-gray-100 bg-gray-50">
-              <p className="text-xs font-bold text-gray-500 uppercase mb-1">Meses Cubiertos</p>
-              <p className="text-2xl font-mono font-bold text-gray-700">{(montoRealHoy / (costoMensualReserva || 1)).toFixed(1)}</p>
+            <div className="p-4 rounded-2xl border border-gray-200 bg-gray-50">
+              <p className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-1">Meses Cubiertos</p>
+              <p className="text-2xl font-bold text-gray-700 tracking-tight">{(montoRealHoy / (costoMensualReserva || 1)).toFixed(1)}</p>
             </div>
           </div>
         </section>
@@ -522,57 +522,59 @@ export default function SaludFinanciera() {
         </section>
       </div>
 
-      <section className="bg-white border border-jengibre-border rounded-xl shadow-sm overflow-hidden">
-        <div className="bg-[#1A2E40] text-white p-3 text-center font-bold tracking-widest">REGISTRO MENSUAL REAL ({yearSelected})</div>
+      <section className="bg-white border border-gray-200 rounded-2xl shadow-sm overflow-hidden">
+        <div className="bg-gray-50 text-gray-700 p-4 border-b border-gray-200 font-bold uppercase tracking-wider text-sm flex items-center justify-between">
+          <span>Registro Mensual Real ({yearSelected})</span>
+        </div>
         <div className="overflow-x-auto">
-          <table className="w-full text-left text-xs whitespace-nowrap border-collapse">
+          <table className="w-full text-left text-sm whitespace-nowrap border-collapse">
             <thead>
-              <tr className="bg-gray-100 font-bold border-b-2 border-gray-300">
-                <th className="p-2 border-r border-gray-300 sticky left-0 bg-gray-100 z-10">CATEGORÍA</th>
-                {mesesNames.map(m => <th key={m} className="p-2 border-r border-gray-300 text-center">{m}</th>)}
-                <th className="p-2 text-center bg-gray-200">TOTAL</th>
+              <tr className="bg-white font-semibold text-gray-500 border-b-2 border-gray-200">
+                <th className="p-3 border-r border-gray-200 sticky left-0 bg-white z-10 font-bold uppercase text-xs">Categoría</th>
+                {mesesNames.map(m => <th key={m} className="p-3 border-r border-gray-100 text-center">{m}</th>)}
+                <th className="p-3 text-center bg-gray-50">Total</th>
               </tr>
             </thead>
             <tbody>
-              <tr className="bg-jengibre-green text-white font-bold"><td className="p-2 sticky left-0 bg-jengibre-green z-10">INGRESOS</td><td colSpan={13}></td></tr>
+              <tr className="bg-emerald-50 text-emerald-800 font-semibold border-b border-emerald-100"><td className="p-3 sticky left-0 bg-emerald-50 z-10">Ingresos</td><td colSpan={13}></td></tr>
               {Object.values(grilla.ingresos).map((c: any) => (
-                <tr key={c.nombre} className="border-b border-gray-100">
-                  <td className="p-2 border-r border-gray-300 sticky left-0 bg-white z-10 font-bold">{c.nombre}</td>
+                <tr key={c.nombre} className="border-b border-gray-100 hover:bg-gray-50 transition-colors">
+                  <td className="p-3 border-r border-gray-200 sticky left-0 bg-white z-10 font-medium text-gray-700">{c.nombre}</td>
                   {c.data.map((v: number, i: number) => (
-                    <td key={i} onClick={() => v > 0 && setSelectedDetail({ categoria: c.nombre, mes: mesesNames[i], movimientos: c.details[i] })} className={`p-2 border-r border-gray-300 text-right font-mono text-blue-800 ${v > 0 ? 'cursor-pointer hover:bg-blue-50 transition-colors' : ''}`}>{v > 0 ? formatARS(v) : '-'}</td>
+                    <td key={i} onClick={() => v > 0 && setSelectedDetail({ categoria: c.nombre, mes: mesesNames[i], movimientos: c.details[i] })} className={`p-3 border-r border-gray-100 text-right ${v > 0 ? 'text-gray-900 cursor-pointer hover:bg-emerald-50' : 'text-gray-400'}`}>{v > 0 ? formatARS(v) : '-'}</td>
                   ))}
-                  <td className="p-2 text-right font-mono font-bold bg-gray-50">{formatARS(c.data.reduce((a: number, b: number) => a + b, 0))}</td>
+                  <td className="p-3 text-right font-semibold bg-gray-50 text-gray-900">{formatARS(c.data.reduce((a: number, b: number) => a + b, 0))}</td>
                 </tr>
               ))}
-              <tr className="bg-gray-50 font-bold border-y border-gray-200">
-                <td className="p-2 sticky left-0 bg-gray-50 z-10">TOTAL INGRESOS</td>
-                {grilla.totales.map((t, i) => <td key={i} className="p-2 text-right font-mono">{formatARS(t.ingresos)}</td>)}
-                <td className="p-2 text-right font-mono bg-gray-100">{formatARS(grilla.totales.reduce((a, t) => a + t.ingresos, 0))}</td>
+              <tr className="bg-gray-50 font-bold border-y-2 border-gray-200 text-gray-800">
+                <td className="p-3 sticky left-0 bg-gray-50 z-10">Total Ingresos</td>
+                {grilla.totales.map((t, i) => <td key={i} className="p-3 text-right">{formatARS(t.ingresos)}</td>)}
+                <td className="p-3 text-right bg-gray-100">{formatARS(grilla.totales.reduce((a, t) => a + t.ingresos, 0))}</td>
               </tr>
-              <tr className="bg-red-600 text-white font-bold"><td className="p-2 sticky left-0 bg-red-600 z-10">EGRESOS</td><td colSpan={13}></td></tr>
+              <tr className="bg-rose-50 text-rose-800 font-semibold border-b border-rose-100"><td className="p-3 sticky left-0 bg-rose-50 z-10">Egresos</td><td colSpan={13}></td></tr>
               {Object.values(grilla.egresos).map((c: any) => (
-                <tr key={c.nombre} className="border-b border-gray-100">
-                  <td className="p-2 border-r border-gray-300 sticky left-0 bg-white z-10 font-bold">{c.nombre}</td>
+                <tr key={c.nombre} className="border-b border-gray-100 hover:bg-gray-50 transition-colors">
+                  <td className="p-3 border-r border-gray-200 sticky left-0 bg-white z-10 font-medium text-gray-700">{c.nombre}</td>
                   {c.data.map((v: number, i: number) => (
-                    <td key={i} onClick={() => v > 0 && setSelectedDetail({ categoria: c.nombre, mes: mesesNames[i], movimientos: c.details[i] })} className={`p-2 border-r border-gray-300 text-right font-mono text-red-700 ${v > 0 ? 'cursor-pointer hover:bg-red-50 transition-colors' : ''}`}>{v > 0 ? formatARS(v) : '-'}</td>
+                    <td key={i} onClick={() => v > 0 && setSelectedDetail({ categoria: c.nombre, mes: mesesNames[i], movimientos: c.details[i] })} className={`p-3 border-r border-gray-100 text-right ${v > 0 ? 'text-gray-900 cursor-pointer hover:bg-rose-50' : 'text-gray-400'}`}>{v > 0 ? formatARS(v) : '-'}</td>
                   ))}
-                  <td className="p-2 text-right font-mono font-bold bg-gray-50">{formatARS(c.data.reduce((a: number, b: number) => a + b, 0))}</td>
+                  <td className="p-3 text-right font-semibold bg-gray-50 text-gray-900">{formatARS(c.data.reduce((a: number, b: number) => a + b, 0))}</td>
                 </tr>
               ))}
-              <tr className="bg-red-50 font-bold border-y border-red-200">
-                <td className="p-2 sticky left-0 bg-red-50 z-10">TOTAL EGRESOS</td>
-                {grilla.totales.map((t, i) => <td key={i} className="p-2 text-right font-mono">{formatARS(t.egresos)}</td>)}
-                <td className="p-2 text-right font-mono bg-red-100">{formatARS(grilla.totales.reduce((a, t) => a + t.egresos, 0))}</td>
+              <tr className="bg-gray-50 font-bold border-y-2 border-gray-200 text-gray-800">
+                <td className="p-3 sticky left-0 bg-gray-50 z-10">Total Egresos</td>
+                {grilla.totales.map((t, i) => <td key={i} className="p-3 text-right">{formatARS(t.egresos)}</td>)}
+                <td className="p-3 text-right bg-gray-100">{formatARS(grilla.totales.reduce((a, t) => a + t.egresos, 0))}</td>
               </tr>
-              <tr className="bg-blue-50 font-bold border-t-2 border-blue-200">
-                <td className="p-2 sticky left-0 bg-blue-50 z-10">RESULTADO NETO</td>
-                {grilla.totales.map((t, i) => <td key={i} className={`p-2 text-right font-mono ${t.neto < 0 ? 'text-red-600' : 'text-blue-900'}`}>{formatARS(t.neto)}</td>)}
-                <td className="p-2 text-right font-mono bg-blue-100">{formatARS(grilla.totales.reduce((a, t) => a + t.neto, 0))}</td>
+              <tr className="bg-white font-bold border-b-2 border-gray-200 text-gray-900">
+                <td className="p-3 sticky left-0 bg-white z-10">Resultado Neto</td>
+                {grilla.totales.map((t, i) => <td key={i} className={`p-3 text-right ${t.neto < 0 ? 'text-rose-600' : 'text-emerald-600'}`}>{formatARS(t.neto)}</td>)}
+                <td className="p-3 text-right bg-gray-50">{formatARS(grilla.totales.reduce((a, t) => a + t.neto, 0))}</td>
               </tr>
-              <tr className="bg-jengibre-dark text-white font-bold border-t-2 border-white/20">
-                <td className="p-2 sticky left-0 bg-jengibre-dark z-10">SALDO ACUMULADO (CAJA)</td>
-                {grilla.totales.map((t, i) => <td key={i} className="p-2 text-right font-mono">{formatARS(t.saldoCaja)}</td>)}
-                <td className="p-2 text-right font-mono bg-gray-800">{formatARS(grilla.totales[11].saldoCaja)}</td>
+              <tr className="bg-gray-900 text-white font-bold">
+                <td className="p-3 sticky left-0 bg-gray-900 z-10">Saldo Acumulado (Caja)</td>
+                {grilla.totales.map((t, i) => <td key={i} className="p-3 text-right">{formatARS(t.saldoCaja)}</td>)}
+                <td className="p-3 text-right bg-gray-800">{formatARS(grilla.totales[11].saldoCaja)}</td>
               </tr>
             </tbody>
           </table>

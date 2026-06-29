@@ -7,39 +7,38 @@ import { supabase } from '@/integrations/supabase/client';
 import { useCotizacionOficial } from '@/hooks/useCotizacion';
 
 const StatCard = ({ title, value, sub, icon: Icon, colorClass = "text-blue-600", bgClass = "bg-blue-50" }: { title: string, value: string, sub?: string, icon: any, colorClass?: string, bgClass?: string }) => (
-  <div className="bg-white border border-jengibre-border p-6 rounded-3xl shadow-sm hover:shadow-md transition-all group relative overflow-hidden">
-    <div className={`absolute -right-4 -top-4 opacity-10 group-hover:scale-110 transition-transform ${colorClass}`}>
-      <Icon size={100} />
-    </div>
-    <div className="relative z-10">
-      <div className="flex items-center gap-2 mb-3">
-        <div className={`p-2 rounded-xl ${bgClass} ${colorClass}`}>
-          <Icon size={18} />
+  <div className="bg-white border border-gray-200 p-6 rounded-2xl shadow-sm hover:shadow-md transition-all flex flex-col justify-between min-w-0">
+    <div>
+      <div className="flex items-center gap-3 mb-4">
+        <div className={`p-2.5 rounded-xl ${bgClass} ${colorClass} shrink-0`}>
+          <Icon size={20} />
         </div>
-        <h3 className="text-[10px] font-bold uppercase tracking-widest text-gray-400">{title}</h3>
+        <h3 className="text-xs font-semibold uppercase tracking-wider text-gray-500 truncate" title={title}>{title}</h3>
       </div>
-      <p className="text-2xl font-mono font-bold text-jengibre-dark truncate">{value}</p>
-      {sub && <p className="text-[10px] text-gray-400 mt-2 font-medium truncate">{sub}</p>}
+      <div className="min-w-0">
+        <p className="text-2xl sm:text-3xl font-bold text-gray-900 tracking-tight truncate" title={value}>{value}</p>
+      </div>
     </div>
+    {sub && <p className="text-[11px] text-gray-500 mt-3 font-medium truncate" title={sub}>{sub}</p>}
   </div>
 );
 
 const SemaforoKPI = ({ title, value, status, label }: { title: string, value: string, status: 'ok' | 'alert' | 'danger', label: string }) => {
-  const colors = { 
-    ok: { dot: 'bg-jengibre-green', text: 'text-jengibre-green', bg: 'bg-jengibre-green/5' }, 
-    alert: { dot: 'bg-jengibre-amber', text: 'text-jengibre-amber', bg: 'bg-jengibre-amber/5' }, 
-    danger: { dot: 'bg-jengibre-red', text: 'text-jengibre-red', bg: 'bg-jengibre-red/5' } 
+  const colors = {
+    ok: { dot: 'bg-green-500', text: 'text-green-700', bg: 'bg-green-50 border border-green-100' },
+    alert: { dot: 'bg-amber-500', text: 'text-amber-700', bg: 'bg-amber-50 border border-amber-100' },
+    danger: { dot: 'bg-red-500', text: 'text-red-700', bg: 'bg-red-50 border border-red-100' }
   };
   const current = colors[status];
   
   return (
-    <div className={`border border-jengibre-border p-4 rounded-2xl flex items-center gap-4 bg-white transition-all hover:border-gray-300 shadow-sm`}>
-      <div className={`w-3 h-3 rounded-full shrink-0 animate-pulse ${current.dot}`} />
+    <div className="border border-gray-200 p-5 rounded-2xl flex items-center gap-4 bg-white hover:border-gray-300 transition-colors shadow-sm min-w-0">
+      <div className={`w-2.5 h-2.5 rounded-full shrink-0 ${current.dot}`} />
       <div className="flex-1 min-w-0">
-        <p className="text-[10px] font-bold text-gray-400 uppercase tracking-widest mb-1 truncate">{title}</p>
-        <div className="flex items-baseline gap-2">
-          <span className="text-lg font-mono font-bold text-gray-900 truncate">{value}</span>
-          <span className={`text-[9px] font-bold px-1.5 py-0.5 rounded whitespace-nowrap ${current.bg} ${current.text}`}>{label}</span>
+        <p className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-1.5 truncate" title={title}>{title}</p>
+        <div className="flex items-center gap-2">
+          <span className="text-xl font-bold text-gray-900 tracking-tight truncate">{value}</span>
+          <span className={`text-[10px] font-bold px-2 py-0.5 rounded-md whitespace-nowrap ${current.bg} ${current.text}`}>{label}</span>
         </div>
       </div>
     </div>
@@ -274,18 +273,18 @@ export default function Dashboard() {
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
         <div className="lg:col-span-2 space-y-8">
           
-          <section className="bg-white border border-jengibre-border rounded-3xl p-6 shadow-sm">
-            <h2 className="text-sm font-bold uppercase tracking-widest text-gray-400 mb-6 flex items-center gap-2">
+          <section className="bg-white border border-gray-200 rounded-3xl p-6 shadow-sm">
+            <h2 className="text-sm font-bold uppercase tracking-wider text-gray-500 mb-6 flex items-center gap-2">
               <Landmark size={16} /> Cuentas con mayor liquidez
             </h2>
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               {Object.entries(stats.saldos).sort((a,b) => b[1] - a[1]).slice(0, 4).map(([nombre, monto]) => (
-                <div key={nombre} className="bg-gray-50 border border-gray-100 p-5 rounded-2xl flex justify-between items-center group hover:border-jengibre-primary hover:bg-white transition-all">
-                  <div className="min-w-0">
-                    <p className="text-[10px] font-bold text-gray-400 uppercase tracking-widest mb-1 truncate">{nombre}</p>
-                    <p className="text-xl font-mono font-bold text-jengibre-dark truncate">{formatARS(monto)}</p>
+                <div key={nombre} className="bg-gray-50 border border-gray-100 p-5 rounded-2xl flex justify-between items-center group hover:border-gray-300 hover:bg-white transition-all shadow-sm">
+                  <div className="min-w-0 pr-4">
+                    <p className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-1 truncate" title={nombre}>{nombre}</p>
+                    <p className="text-xl font-bold text-gray-900 tracking-tight truncate" title={formatARS(monto)}>{formatARS(monto)}</p>
                   </div>
-                  <div className="p-2 rounded-xl bg-white text-gray-300 group-hover:bg-jengibre-cream group-hover:text-jengibre-primary transition-colors shadow-sm">
+                  <div className="p-2.5 rounded-xl bg-white text-gray-400 group-hover:text-blue-600 transition-colors shadow-sm shrink-0">
                     <Wallet size={20} />
                   </div>
                 </div>
@@ -293,8 +292,8 @@ export default function Dashboard() {
             </div>
           </section>
 
-          <section className="bg-white border border-jengibre-border rounded-3xl p-6 shadow-sm">
-            <h2 className="text-sm font-bold uppercase tracking-widest text-gray-400 mb-6 flex items-center gap-2">
+          <section className="bg-white border border-gray-200 rounded-3xl p-6 shadow-sm">
+            <h2 className="text-sm font-bold uppercase tracking-wider text-gray-500 mb-6 flex items-center gap-2">
               <Sparkles size={16} /> Métricas de Control
             </h2>
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
@@ -307,30 +306,31 @@ export default function Dashboard() {
         </div>
 
         <div className="space-y-8">
-          <section className="bg-jengibre-dark text-white rounded-3xl p-8 shadow-xl relative overflow-hidden">
-            <div className="absolute top-0 right-0 p-4 opacity-10"><TrendingUp size={80} /></div>
-            <h2 className="text-xl font-display font-bold mb-6 relative z-10">Cierre del Mes</h2>
-            <div className="space-y-6 relative z-10">
-              <div className="flex justify-between items-end">
-                <div>
-                  <p className="text-[10px] font-bold text-gray-400 uppercase tracking-widest mb-1">Ingresos Cobrados</p>
-                  <p className="text-2xl font-mono font-bold text-jengibre-secondary">{formatARS(stats.mesActual.ingresos)}</p>
+          <section className="bg-gray-900 text-white rounded-3xl p-8 shadow-xl flex flex-col justify-between">
+            <div>
+              <h2 className="text-xl font-bold mb-8">Cierre del Mes</h2>
+              <div className="space-y-6">
+                <div className="flex justify-between items-center">
+                  <div>
+                    <p className="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-1">Ingresos Cobrados</p>
+                    <p className="text-2xl font-bold text-emerald-400 tracking-tight truncate max-w-[200px]" title={formatARS(stats.mesActual.ingresos)}>{formatARS(stats.mesActual.ingresos)}</p>
+                  </div>
+                  <ArrowDownRight className="text-emerald-400 shrink-0" size={24} />
                 </div>
-                <ArrowDownRight className="text-jengibre-secondary mb-1" size={20} />
-              </div>
-              <div className="flex justify-between items-end">
-                <div>
-                  <p className="text-[10px] font-bold text-gray-400 uppercase tracking-widest mb-1">Costos Pagados</p>
-                  <p className="text-2xl font-mono font-bold text-red-400">{formatARS(stats.mesActual.costos)}</p>
+                <div className="flex justify-between items-center">
+                  <div>
+                    <p className="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-1">Costos Pagados</p>
+                    <p className="text-2xl font-bold text-rose-400 tracking-tight truncate max-w-[200px]" title={formatARS(stats.mesActual.costos)}>{formatARS(stats.mesActual.costos)}</p>
+                  </div>
+                  <ArrowUpRight className="text-rose-400 shrink-0" size={24} />
                 </div>
-                <ArrowUpRight className="text-red-400 mb-1" size={20} />
               </div>
-              <div className="pt-4 border-t border-white/10">
-                <p className="text-[10px] font-bold text-gray-400 uppercase tracking-widest mb-1">Resultado Neto</p>
-                <p className={`text-3xl font-mono font-bold ${stats.mesActual.resultado < 0 ? 'text-red-400' : 'text-white'}`}>
-                  {formatARS(stats.mesActual.resultado)}
-                </p>
-              </div>
+            </div>
+            <div className="pt-6 mt-6 border-t border-gray-800">
+              <p className="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-2">Resultado Neto</p>
+              <p className={`text-4xl font-bold tracking-tight truncate ${stats.mesActual.resultado < 0 ? 'text-rose-400' : 'text-white'}`} title={formatARS(stats.mesActual.resultado)}>
+                {formatARS(stats.mesActual.resultado)}
+              </p>
             </div>
           </section>
 

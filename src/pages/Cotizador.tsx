@@ -340,18 +340,17 @@ export default function Cotizador() {
           <div className="sticky top-6 space-y-6">
             
             {/* CARTA DE RESULTADO */}
-            <div className="bg-[#2B317A] text-white p-8 rounded-3xl shadow-xl relative overflow-hidden bg-cover bg-center" style={{ backgroundImage: "url('/fondo.jpg')" }}>
-              <div className="absolute inset-0 bg-[#2B317A]/90 z-0"></div>
-              <div className="relative z-10 text-center">
-                <p className="text-jengibre-secondary font-bold uppercase tracking-widest text-xs mb-2">Precio Final Sugerido</p>
-                <h2 className="text-5xl font-mono font-bold mb-2">{formatARS(costos.precioFinal)}</h2>
-                <div className="inline-block bg-white/10 backdrop-blur-sm border border-white/20 rounded-full px-4 py-1.5 text-sm font-medium">
-                  USD: <span className="font-bold">{formatUSD(costos.precioFinal / cotizacion)}</span>
+            <div className="bg-gray-900 text-white p-8 rounded-3xl shadow-xl flex flex-col justify-between">
+              <div className="text-center">
+                <p className="text-gray-400 font-semibold uppercase tracking-wider text-xs mb-3">Precio Final Sugerido</p>
+                <h2 className="text-4xl sm:text-5xl font-bold tracking-tight mb-4 truncate" title={formatARS(costos.precioFinal)}>{formatARS(costos.precioFinal)}</h2>
+                <div className="inline-block bg-gray-800 border border-gray-700 rounded-full px-5 py-2 text-sm font-medium">
+                  USD: <span className="font-bold text-emerald-400">{formatUSD(costos.precioFinal / cotizacion)}</span>
                 </div>
                 
-                <button 
+                <button
                   onClick={copyToClipboard}
-                  className="w-full mt-6 bg-jengibre-primary hover:bg-[#a64120] text-white py-3 rounded-xl font-bold flex items-center justify-center gap-2 transition-colors shadow-lg"
+                  className="w-full mt-8 bg-blue-600 hover:bg-blue-700 text-white py-3.5 rounded-xl font-bold flex items-center justify-center gap-2 transition-colors shadow-sm"
                 >
                   <Copy size={18} /> Copiar Propuesta Comercial
                 </button>
