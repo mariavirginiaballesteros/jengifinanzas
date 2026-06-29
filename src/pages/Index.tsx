@@ -10,12 +10,28 @@ export default function Dashboard() {
   const cotizacion = cotizacionData || 1000;
 
   // Queries
-  const { data: cuentas, isLoading: loadingCuentas } = useQuery({
-    queryKey: ['cuentas_dash'],
+  const { data: movimientos, isLoading: loadingMov } = useQuery({
+    queryKey: ['movimientos_dash'],
     queryFn: async () => {
-      const { data, error } = await supabase.from('cuentas').select('*').order('nombre');
+      const { data, error } = await supabase.from('movimientos').select('*');
       if (error) throw error;
       return data;
+    }
+  });
+
+  const { data: configCuentas } = useQuery({
+    queryKey: ['configuracion', 'cuentas_caja'],
+    queryFn: async () => {
+      const { data } = await supabase.from('configuracion').select('valor').eq('clave', 'cuentas_caja').maybeSingle();
+      return data?.valor ? JSON.parse(data.valor) : ['MP Vir', 'MP Mauro', 'MP Fondo', 'USD'];
+    }
+  });
+
+  const { data: configSaldos } = useQuery({
+    queryKey: ['configuracion', 'saldos_iniciales'],
+    queryFn: async () => {
+      const { data } = await supabase.from('configuracion').select('valor').eq('clave', 'saldos_iniciales').maybeSingle();
+      return data?.valor ? JSON.parse(data.valor) : {};
     }
   });
 
@@ -37,26 +53,28 @@ export default function Dashboard() {
     }
   });
 
-  const { data: transacciones, isLoading: loadingTrans } = useQuery({
-    queryKey: ['transacciones_dash'],
-    queryFn: async () => {
-      const { data, error } = await supabase.from('transacciones').select('*').order('fecha', { ascending: false }).limit(5);
-      if (error) throw error;
-      return data;
-    }
-  });
-
   // Cálculos
   const stats = useMemo(() => {
-    if (!cuentas || !facturas || !equipo) return null;
+    if (!configCuentas || !movimientos || !facturas || !equipo) return null;
 
-    const porCuenta = cuentas.map(c => {
-      const esUSD = c.nombre.toUpperCase().includes('USD') || c.nombre.toUpperCase().includes('DÓLAR');
-      const saldoARS = esUSD ? c.saldo * cotizacion : c.saldo;
-      return { ...c, esUSD, saldoARS };
-    }).filter(c => c.nombre.toUpperCase() !== 'IVA');
+    const porCuenta = configCuentas.map((nombre: string) => {
+      const esUSD = nombre.toUpperCase().includes('USD') || nombre.toUpperCase().includes('DÓLAR');
+      const saldoInicial = Number(configSaldos?.[nombre] || 0);
+      
+      const movsCuenta = movimientos.filter(m => m.cuenta === nombre);
+      const totalMovs = movsCuenta.reduce((acc, m) => {
+        if (m.tipo === 'ingreso') return acc + Number(m.monto);
+        if (m.tipo === 'egreso') return acc - Number(m.monto);
+        return acc;
+      }, 0);
 
-    const liquidezTotal = porCuenta.reduce((acc, c) => acc + c.saldoARS, 0);
+      const saldoActual = saldoInicial + totalMovs;
+      const saldoARS = esUSD ? saldoActual * cotizacion : saldoActual;
+      
+      return { nombre, esUSD, saldo: saldoActual, saldoARS };
+    }).filter((c: any) => c.nombre.toUpperCase() !== 'IVA');
+
+    const liquidezTotal = porCuenta.reduce((acc: number, c: any) => acc + c.saldoARS, 0);
 
     const hoyStr = getLocalDateString().substring(0, 7);
     const facturasPendientes = facturas
@@ -72,9 +90,14 @@ export default function Dashboard() {
     const montoReal = liquidezTotal + facturasPendientes - honorariosPendientes;
 
     return { liquidezTotal, facturasPendientes, honorariosPendientes, montoReal, porCuenta };
-  }, [cuentas, facturas, equipo, cotizacion]);
+  }, [configCuentas, configSaldos, movimientos, facturas, equipo, cotizacion]);
 
-  if (loadingCuentas || loadingFacturas || loadingEquipo || loadingTrans) {
+  const ultimosMovimientos = useMemo(() => {
+    if (!movimientos) return [];
+    return [...movimientos].sort((a, b) => new Date(b.fecha).getTime() - new Date(a.fecha).getTime()).slice(0, 5);
+  }, [movimientos]);
+
+  if (loadingMov || loadingFacturas || loadingEquipo) {
     return <div className="flex justify-center py-32"><Loader2 className="w-12 h-12 text-slate-300 animate-spin" /></div>;
   }
 
@@ -133,8 +156,8 @@ export default function Dashboard() {
               <button className="text-[10px] font-bold uppercase tracking-widest text-slate-400 hover:text-slate-600 transition-colors">Ver Todas</button>
             </div>
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-              {stats?.porCuenta.map(c => (
-                <div key={c.id} className="flex items-center justify-between p-5 rounded-2xl bg-slate-50 border border-slate-100 group hover:bg-white hover:border-slate-200 transition-all">
+              {stats?.porCuenta.map((c: any) => (
+                <div key={c.nombre} className="flex items-center justify-between p-5 rounded-2xl bg-slate-50 border border-slate-100 group hover:bg-white hover:border-slate-200 transition-all">
                   <div className="flex items-center gap-4">
                     <div className={`p-2.5 rounded-xl ${c.esUSD ? 'bg-blue-100 text-blue-600' : 'bg-white text-slate-400'} shadow-sm`}>
                       <Wallet size={18} />
@@ -163,21 +186,21 @@ export default function Dashboard() {
           <div className="bg-white border border-slate-200 rounded-[2.5rem] p-8 shadow-sm h-full">
             <h2 className="text-lg font-bold text-slate-900 tracking-tight mb-8">Actividad Reciente</h2>
             <div className="space-y-6">
-              {transacciones?.map(t => (
-                <div key={t.id} className="flex items-start gap-4 group">
-                  <div className={`p-2 rounded-xl shrink-0 ${t.tipo === 'ingreso' ? 'bg-emerald-50 text-emerald-600' : 'bg-rose-50 text-rose-600'}`}>
-                    {t.tipo === 'ingreso' ? <ArrowUpRight size={16} /> : <ArrowDownRight size={16} />}
+              {ultimosMovimientos.map(m => (
+                <div key={m.id} className="flex items-start gap-4 group">
+                  <div className={`p-2 rounded-xl shrink-0 ${m.tipo === 'ingreso' ? 'bg-emerald-50 text-emerald-600' : 'bg-rose-50 text-rose-600'}`}>
+                    {m.tipo === 'ingreso' ? <ArrowUpRight size={16} /> : <ArrowDownRight size={16} />}
                   </div>
                   <div className="min-w-0 flex-1">
-                    <p className="text-sm font-bold text-slate-700 truncate group-hover:text-slate-900 transition-colors">{t.descripcion}</p>
-                    <p className="text-[10px] text-slate-400 font-medium uppercase mt-0.5">{new Date(t.fecha).toLocaleDateString()}</p>
+                    <p className="text-sm font-bold text-slate-700 truncate group-hover:text-slate-900 transition-colors">{m.concepto}</p>
+                    <p className="text-[10px] text-slate-400 font-medium uppercase mt-0.5">{new Date(m.fecha).toLocaleDateString()}</p>
                   </div>
-                  <p className={`text-sm font-bold tracking-tight ${t.tipo === 'ingreso' ? 'text-emerald-600' : 'text-rose-600'}`}>
-                    {t.moneda === 'USD' ? formatUSD(t.monto) : formatARS(t.monto)}
+                  <p className={`text-sm font-bold tracking-tight ${m.tipo === 'ingreso' ? 'text-emerald-600' : 'text-rose-600'}`}>
+                    {m.cuenta.toUpperCase().includes('USD') ? formatUSD(m.monto) : formatARS(m.monto)}
                   </p>
                 </div>
               ))}
-              {transacciones?.length === 0 && (
+              {ultimosMovimientos.length === 0 && (
                 <div className="text-center py-12">
                   <p className="text-xs font-bold text-slate-300 uppercase tracking-widest">Sin movimientos</p>
                 </div>

@@ -164,8 +164,6 @@ export default function Recuperos() {
               </thead>
               <tbody>
                 {filteredRecuperos?.map((r) => {
-                  const notas = parseNotas(r.notes); // Note: the column name in DB is 'notas' but parseNotas handles it
-                  // Wait, let's check the column name in DB. It's 'notas'.
                   const notasData = parseNotas(r.notas);
                   return (
                     <tr key={r.id} className={`border-b border-slate-50 hover:bg-slate-50/50 transition-colors group ${r.estado === 'cobrado' ? 'opacity-60' : ''}`}>

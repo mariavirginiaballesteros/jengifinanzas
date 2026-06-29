@@ -13,12 +13,28 @@ export default function SaludFinanciera() {
   const [selectedYear, setSelectedYear] = useState(new Date().getFullYear());
 
   // Queries
-  const { data: cuentas } = useQuery({
-    queryKey: ['cuentas_salud'],
+  const { data: movimientos } = useQuery({
+    queryKey: ['movimientos_salud'],
     queryFn: async () => {
-      const { data, error } = await supabase.from('cuentas').select('*').order('nombre');
+      const { data, error } = await supabase.from('movimientos').select('*');
       if (error) throw error;
       return data;
+    }
+  });
+
+  const { data: configCuentas } = useQuery({
+    queryKey: ['configuracion', 'cuentas_caja'],
+    queryFn: async () => {
+      const { data } = await supabase.from('configuracion').select('valor').eq('clave', 'cuentas_caja').maybeSingle();
+      return data?.valor ? JSON.parse(data.valor) : ['MP Vir', 'MP Mauro', 'MP Fondo', 'USD'];
+    }
+  });
+
+  const { data: configSaldos } = useQuery({
+    queryKey: ['configuracion', 'saldos_iniciales'],
+    queryFn: async () => {
+      const { data } = await supabase.from('configuracion').select('valor').eq('clave', 'saldos_iniciales').maybeSingle();
+      return data?.valor ? JSON.parse(data.valor) : {};
     }
   });
 
@@ -40,7 +56,7 @@ export default function SaludFinanciera() {
     }
   });
 
-  const { data: config } = useQuery({
+  const { data: configRows } = useQuery({
     queryKey: ['configuracion_salud'],
     queryFn: async () => {
       const { data, error } = await supabase.from('configuracion').select('*');
@@ -51,22 +67,33 @@ export default function SaludFinanciera() {
 
   // Cálculos de Saldos Reales
   const saldos = useMemo(() => {
-    if (!cuentas) return { totalARS: 0, porCuenta: [] };
-    const porCuenta = cuentas.map(c => {
-      const esUSD = c.nombre.toUpperCase().includes('USD') || c.nombre.toUpperCase().includes('DÓLAR');
-      const saldoARS = esUSD ? c.saldo * cotizacion : c.saldo;
-      return { ...c, esUSD, saldoARS };
-    }).filter(c => c.nombre.toUpperCase() !== 'IVA');
+    if (!configCuentas || !movimientos) return { totalARS: 0, porCuenta: [] };
+    
+    const porCuenta = configCuentas.map((nombre: string) => {
+      const esUSD = nombre.toUpperCase().includes('USD') || nombre.toUpperCase().includes('DÓLAR');
+      const saldoInicial = Number(configSaldos?.[nombre] || 0);
+      
+      const movsCuenta = movimientos.filter(m => m.cuenta === nombre);
+      const totalMovs = movsCuenta.reduce((acc, m) => {
+        if (m.tipo === 'ingreso') return acc + Number(m.monto);
+        if (m.tipo === 'egreso') return acc - Number(m.monto);
+        return acc;
+      }, 0);
 
-    const totalARS = porCuenta.reduce((acc, c) => acc + c.saldoARS, 0);
+      const saldoActual = saldoInicial + totalMovs;
+      const saldoARS = esUSD ? saldoActual * cotizacion : saldoActual;
+      
+      return { nombre, esUSD, saldo: saldoActual, saldoARS };
+    }).filter((c: any) => c.nombre.toUpperCase() !== 'IVA');
+
+    const totalARS = porCuenta.reduce((acc: number, c: any) => acc + c.saldoARS, 0);
     return { totalARS, porCuenta };
-  }, [cuentas, cotizacion]);
+  }, [configCuentas, configSaldos, movimientos, cotizacion]);
 
   // Cálculos de Monto Real Proyectado
   const proyeccion = useMemo(() => {
-    if (!facturas || !equipo || !config) return { facturasPendientes: 0, honorariosPendientes: 0, costoEstructural: 0, montoReal: 0 };
+    if (!facturas || !equipo || !configRows) return { facturasPendientes: 0, honorariosPendientes: 0, costoEstructural: 0, montoReal: 0 };
     
-    const hoy = new Date();
     const hoyStr = getLocalDateString().substring(0, 7);
 
     const facturasPendientes = facturas
@@ -79,16 +106,16 @@ export default function SaludFinanciera() {
       return acc + Number(m.honorario_mensual || 0) + asignaciones;
     }, 0);
 
-    const gastosFijos = Number(config.find(c => c.clave === 'gastos_fijos_estimados')?.valor || 0);
-    const costoDir = Number(config.find(c => c.clave === 'costo_direccion_mensual')?.valor || 0);
+    const gastosFijos = Number(configRows.find(c => c.clave === 'gastos_fijos_estimados')?.valor || 0);
+    const costoDir = Number(configRows.find(c => c.clave === 'costo_direccion_mensual')?.valor || 0);
     const costoEstructural = gastosFijos + costoDir;
 
     const montoReal = saldos.totalARS + facturasPendientes - honorariosPendientes;
 
     return { facturasPendientes, honorariosPendientes, costoEstructural, montoReal };
-  }, [facturas, equipo, config, saldos]);
+  }, [facturas, equipo, configRows, saldos]);
 
-  const metaReserva = Number(config?.find(c => c.clave === 'meta_reserva_anual')?.valor || 33000000);
+  const metaReserva = Number(configRows?.find(c => c.clave === 'meta_reserva_anual')?.valor || 33000000);
 
   return (
     <div className="animate-in fade-in duration-700 pb-20">
@@ -111,8 +138,8 @@ export default function SaludFinanciera() {
           <h2 className="text-[11px] font-bold uppercase tracking-[0.15em]">Saldos Reales por Cuenta</h2>
         </div>
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-5">
-          {saldos.porCuenta.map(c => (
-            <div key={c.id} className="bg-white border border-slate-200 p-6 rounded-3xl shadow-sm hover:shadow-md transition-all group">
+          {saldos.porCuenta.map((c: any) => (
+            <div key={c.nombre} className="bg-white border border-slate-200 p-6 rounded-3xl shadow-sm hover:shadow-md transition-all group">
               <div className="flex items-center justify-between mb-4">
                 <div className="p-2 rounded-xl bg-slate-50 text-slate-400 group-hover:text-slate-600 transition-colors">
                   <Wallet size={18} />
