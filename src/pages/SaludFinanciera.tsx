@@ -56,6 +56,15 @@ export default function SaludFinanciera() {
     }
   });
 
+  const { data: clientes } = useQuery({
+    queryKey: ['clientes_salud'],
+    queryFn: async () => {
+      const { data, error } = await supabase.from('clientes').select('id, estado');
+      if (error) throw error;
+      return data;
+    }
+  });
+
   const { data: configRows } = useQuery({
     queryKey: ['configuracion_salud'],
     queryFn: async () => {
@@ -92,7 +101,7 @@ export default function SaludFinanciera() {
 
   // Cálculos de Monto Real Proyectado
   const proyeccion = useMemo(() => {
-    if (!facturas || !equipo || !configRows) return { facturasPendientes: 0, honorariosPendientes: 0, costoEstructural: 0, montoReal: 0 };
+    if (!facturas || !equipo || !configRows || !clientes) return { facturasPendientes: 0, honorariosPendientes: 0, costoEstructural: 0, montoReal: 0 };
     
     const hoyStr = getLocalDateString().substring(0, 7);
 
@@ -101,9 +110,14 @@ export default function SaludFinanciera() {
       .reduce((acc, f) => acc + parseFinancial(f.monto_final || f.monto_base), 0);
 
     const honorariosPendientes = equipo.reduce((acc, m) => {
-      const notas = parseNotas(m.notas);
-      const asignaciones = (Object.values(notas.asignaciones || {}) as number[]).reduce((a: number, b: number) => a + Number(b || 0), 0);
-      return acc + Number(m.honorario_mensual || 0) + asignaciones;
+      const notas = typeof m.notas === 'string' ? parseNotas(m.notas) : (m.notas || {});
+      const asignaciones = notas.asignaciones || {};
+      const totalAsignaciones = Object.entries(asignaciones).reduce((a: number, [cId, monto]: [string, any]) => {
+        const c = clientes.find(cl => cl.id === cId);
+        if (c && c.estado === 'activo') return a + Number(monto || 0);
+        return a;
+      }, 0);
+      return acc + Number(m.honorario_mensual || 0) + totalAsignaciones;
     }, 0);
 
     const gastosFijos = Number(configRows.find(c => c.clave === 'gastos_fijos_estimados')?.valor || 0);

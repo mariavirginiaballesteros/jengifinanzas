@@ -53,9 +53,18 @@ export default function Dashboard() {
     }
   });
 
+  const { data: clientes, isLoading: loadingClientes } = useQuery({
+    queryKey: ['clientes_dash'],
+    queryFn: async () => {
+      const { data, error } = await supabase.from('clientes').select('id, estado');
+      if (error) throw error;
+      return data;
+    }
+  });
+
   // Cálculos
   const stats = useMemo(() => {
-    if (!configCuentas || !movimientos || !facturas || !equipo) return null;
+    if (!configCuentas || !movimientos || !facturas || !equipo || !clientes) return null;
 
     const porCuenta = configCuentas.map((nombre: string) => {
       const esUSD = nombre.toUpperCase().includes('USD') || nombre.toUpperCase().includes('DÓLAR');
@@ -82,9 +91,14 @@ export default function Dashboard() {
       .reduce((acc, f) => acc + parseFinancial(f.monto_final || f.monto_base), 0);
 
     const honorariosPendientes = equipo.reduce((acc, m) => {
-      const notas = parseNotas(m.notas);
-      const asignaciones = (Object.values(notas.asignaciones || {}) as number[]).reduce((a: number, b: number) => a + Number(b || 0), 0);
-      return acc + Number(m.honorario_mensual || 0) + asignaciones;
+      const notas = typeof m.notas === 'string' ? parseNotas(m.notas) : (m.notas || {});
+      const asignaciones = notas.asignaciones || {};
+      const totalAsignaciones = Object.entries(asignaciones).reduce((a: number, [cId, monto]: [string, any]) => {
+        const c = clientes.find(cl => cl.id === cId);
+        if (c && c.estado === 'activo') return a + Number(monto || 0);
+        return a;
+      }, 0);
+      return acc + Number(m.honorario_mensual || 0) + totalAsignaciones;
     }, 0);
 
     const montoReal = liquidezTotal + facturasPendientes - honorariosPendientes;
@@ -97,7 +111,7 @@ export default function Dashboard() {
     return [...movimientos].sort((a, b) => new Date(b.fecha).getTime() - new Date(a.fecha).getTime()).slice(0, 5);
   }, [movimientos]);
 
-  if (loadingMov || loadingFacturas || loadingEquipo) {
+  if (loadingMov || loadingFacturas || loadingEquipo || loadingClientes) {
     return <div className="flex justify-center py-32"><Loader2 className="w-12 h-12 text-slate-300 animate-spin" /></div>;
   }
 

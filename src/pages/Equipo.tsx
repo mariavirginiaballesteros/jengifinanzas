@@ -85,8 +85,17 @@ export default function Equipo() {
     m.rol.toLowerCase().includes(searchTerm.toLowerCase())
   );
 
+  const handleSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    const cleanAsignaciones: Record<string, number> = {};
+    Object.entries(formData.asignaciones).forEach(([k, v]) => {
+      if (Number(v) > 0) cleanAsignaciones[k] = Number(v);
+    });
+    saveMutation.mutate({ ...formData, asignaciones: cleanAsignaciones });
+  };
+
   const openEdit = (miembro: any) => {
-    const notasData = parseNotas(miembro.notas);
+    const notasData = typeof miembro.notas === 'string' ? parseNotas(miembro.notas) : (miembro.notas || {});
     setFormData({
       nombre: miembro.nombre || '',
       rol: miembro.rol || '',
@@ -105,6 +114,13 @@ export default function Equipo() {
     setIsFormOpen(false);
     setEditingId(null);
     setFormData(defaultForm);
+  };
+
+  const setAsignacion = (clienteId: string, value: string) => {
+    setFormData(prev => ({
+      ...prev,
+      asignaciones: { ...prev.asignaciones, [clienteId]: Number(value) }
+    }));
   };
 
   const handleWhatsApp = (miembro: any) => {
@@ -158,10 +174,21 @@ export default function Equipo() {
               </thead>
               <tbody>
                 {filteredEquipo?.map((m) => {
-                  const notas = parseNotas(m.notas);
-                  const proyectosActivosCount = Object.keys(notas.asignaciones || {}).length;
-                  const honorarioProyectos = (Object.values(notas.asignaciones || {}) as number[]).reduce((a: number, b: number) => a + Number(b || 0), 0);
-                  const total = Number(m.honorario_mensual) + honorarioProyectos;
+                  const notas = typeof m.notas === 'string' ? parseNotas(m.notas) : (m.notas || {});
+                  const asignaciones = notas.asignaciones || {};
+                  
+                  let proyectosActivosCount = 0;
+                  const honorarioProyectos = Object.entries(asignaciones).reduce((acc, [cId, monto]) => {
+                    const c = clientes?.find((cl: any) => cl.id === cId);
+                    if (c && c.estado === 'activo') {
+                      proyectosActivosCount++;
+                      return acc + Number(monto || 0);
+                    }
+                    return acc;
+                  }, 0);
+                  
+                  const base = Number(m.honorario_mensual || 0);
+                  const total = base + honorarioProyectos;
                   
                   return (
                     <tr key={m.id} className="border-b border-slate-50 hover:bg-slate-50/50 transition-colors group">
@@ -199,6 +226,62 @@ export default function Equipo() {
           </div>
         )}
       </div>
+
+      {isFormOpen && (
+        <div className="fixed inset-0 bg-slate-900/40 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+          <div className="bg-white rounded-[2.5rem] w-full max-w-2xl p-10 shadow-2xl animate-in zoom-in-95 max-h-[90vh] overflow-y-auto border border-white/20">
+            <div className="flex justify-between items-center mb-10">
+              <h2 className="text-2xl font-bold tracking-tight text-slate-900">{editingId ? 'Editar Miembro' : 'Nuevo Miembro'}</h2>
+              <button onClick={closeForm} className="p-2 hover:bg-slate-100 rounded-full transition-colors text-slate-400"><X size={24} /></button>
+            </div>
+            <form onSubmit={handleSubmit} className="space-y-6">
+              <div className="grid grid-cols-2 gap-6">
+                <div className="space-y-1.5">
+                  <label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest ml-1">Nombre Completo</label>
+                  <input required className="w-full border border-slate-200 rounded-xl p-3.5 outline-none focus:ring-2 focus:ring-slate-100 font-bold text-slate-700 text-sm" value={formData.nombre} onChange={e => setFormData({...formData, nombre: e.target.value})} />
+                </div>
+                <div className="space-y-1.5">
+                  <label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest ml-1">Rol / Puesto</label>
+                  <input className="w-full border border-slate-200 rounded-xl p-3.5 outline-none focus:ring-2 focus:ring-slate-100 font-bold text-slate-700 text-sm" value={formData.rol} onChange={e => setFormData({...formData, rol: e.target.value})} />
+                </div>
+              </div>
+              <div className="grid grid-cols-2 gap-6">
+                <div className="space-y-1.5">
+                  <label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest ml-1">Sueldo Base (ARS)</label>
+                  <div className="relative">
+                    <span className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400 font-bold text-sm">$</span>
+                    <input type="number" className="w-full border border-slate-200 rounded-xl p-3.5 pl-8 outline-none focus:ring-2 focus:ring-slate-100 font-bold text-slate-900 text-lg tracking-tight" value={formData.honorario_mensual} onChange={e => setFormData({...formData, honorario_mensual: Number(e.target.value)})} />
+                  </div>
+                </div>
+                <div className="space-y-1.5">
+                  <label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest ml-1">WhatsApp</label>
+                  <input className="w-full border border-slate-200 rounded-xl p-3.5 outline-none focus:ring-2 focus:ring-slate-100 font-bold text-slate-700 text-sm" value={formData.telefono} onChange={e => setFormData({...formData, telefono: e.target.value})} placeholder="+54 9..." />
+                </div>
+              </div>
+              <div className="bg-slate-50 p-6 rounded-2xl border border-slate-100 space-y-4">
+                <h3 className="text-[10px] font-bold uppercase tracking-widest text-slate-400 mb-2">Asignación por Proyecto</h3>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 max-h-60 overflow-y-auto pr-2">
+                  {clientes?.map(c => (
+                    <div key={c.id} className="flex items-center justify-between bg-white p-3 rounded-xl border border-slate-100 shadow-sm">
+                      <span className="text-xs font-bold uppercase tracking-tight text-slate-600 truncate mr-3">{c.nombre}</span>
+                      <div className="relative w-28 shrink-0">
+                        <span className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 font-bold text-xs">$</span>
+                        <input type="number" className="w-full border border-slate-100 rounded-lg p-2 pl-6 text-right font-bold text-sm outline-none focus:ring-2 focus:ring-slate-100" value={formData.asignaciones[c.id] || ''} onChange={e => setAsignacion(c.id, e.target.value)} />
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+              <div className="flex justify-end gap-3 mt-10 pt-8 border-t border-slate-100">
+                <button type="button" onClick={closeForm} className="px-6 py-3.5 text-slate-400 font-bold uppercase tracking-widest text-[10px] hover:bg-slate-50 rounded-xl transition-colors">Cancelar</button>
+                <button type="submit" disabled={saveMutation.isPending} className="bg-slate-900 text-white px-8 py-3.5 rounded-xl font-bold uppercase tracking-widest text-[10px] shadow-lg shadow-slate-900/10 active:scale-95 transition-all disabled:opacity-50">
+                  {saveMutation.isPending ? 'Guardando...' : 'Guardar Miembro'}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
