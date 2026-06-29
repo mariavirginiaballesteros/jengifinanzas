@@ -74,10 +74,18 @@ export default function SaludFinanciera() {
     }
   });
 
-  // Cálculos de Saldos Reales
+  // Cálculos de Saldos Reales y Grilla
   const saldos = useMemo(() => {
-    if (!configCuentas || !movimientos) return { totalARS: 0, porCuenta: [] };
+    const defaultState = {
+      totalARS: 0,
+      porCuenta: [],
+      grilla: { ingresos: {}, egresos: {}, totales: Array(12).fill(0).map(() => ({ ingresos: 0, egresos: 0, neto: 0, margen: 0, saldoCaja: 0 })) },
+      mesesNames: ['Ene', 'Feb', 'Mar', 'Abr', 'May', 'Jun', 'Jul', 'Ago', 'Sep', 'Oct', 'Nov', 'Dic']
+    };
+
+    if (!configCuentas || !movimientos) return defaultState;
     
+    // 1. Cálculos de cuentas (arriba)
     const porCuenta = configCuentas.map((nombre: string) => {
       const esUSD = nombre.toUpperCase().includes('USD') || nombre.toUpperCase().includes('DÓLAR');
       const saldoInicial = Number(configSaldos?.[nombre] || 0);
@@ -86,6 +94,10 @@ export default function SaludFinanciera() {
       const totalMovs = movsCuenta.reduce((acc, m) => {
         if (m.tipo === 'ingreso') return acc + Number(m.monto);
         if (m.tipo === 'egreso') return acc - Number(m.monto);
+        if (m.tipo === 'transferencia') {
+          if (m.cuenta === nombre) return acc - Number(m.monto);
+          if (m.cuenta_destino === nombre) return acc + Number(m.monto);
+        }
         return acc;
       }, 0);
 
@@ -96,8 +108,70 @@ export default function SaludFinanciera() {
     }).filter((c: any) => c.nombre.toUpperCase() !== 'IVA');
 
     const totalARS = porCuenta.reduce((acc: number, c: any) => acc + c.saldoARS, 0);
-    return { totalARS, porCuenta };
-  }, [configCuentas, configSaldos, movimientos, cotizacion]);
+
+    // 2. Cálculos de grilla mensual
+    const mesesKeys = Array.from({ length: 12 }, (_, i) => `${selectedYear}-${String(i + 1).padStart(2, '0')}`);
+    const ingresosPorCategoria: Record<string, { nombre: string, data: number[], details: any[][] }> = {};
+    const egresosPorCategoria: Record<string, { nombre: string, data: number[], details: any[][] }> = {};
+    const totalesMes = mesesKeys.map(() => ({ ingresos: 0, egresos: 0, neto: 0, margen:0, saldoCaja: 0 }));
+
+    let saldoInicialAnio = 0;
+    Object.entries(configSaldos).forEach(([c, m]) => {
+      if (c.toUpperCase() !== 'IVA') {
+        const esUSD = c.toUpperCase().includes('USD') || c.toUpperCase().includes('DÓLAR');
+        const mnt = Number(m);
+        saldoInicialAnio += esUSD ? mnt * cotizacion : mnt;
+      }
+    });
+
+    movimientos.forEach(m => {
+      if (!m.fecha || m.cuenta === 'IVA') return;
+      const notasParsed = typeof m.notas === 'string' ? parseNotas(m.notas) : (m.notas || {});
+      const isUSD = m.cuenta.toUpperCase().includes('USD') || m.cuenta.toUpperCase().includes('DÓLAR');
+      
+      const montoOriginal = parseFinancial(m.monto) || 0;
+      const valorEnPesos = parseFinancial(isUSD ? montoOriginal * cotizacion : montoOriginal);
+
+      const anioMov = parseInt(m.fecha.substring(0, 4));
+      if (anioMov < selectedYear) {
+        if (m.tipo === 'ingreso') saldoInicialAnio = parseFinancial(saldoInicialAnio + valorEnPesos);
+        else if (m.tipo === 'egreso') saldoInicialAnio = parseFinancial(saldoInicialAnio - valorEnPesos);
+      } else if (anioMov === selectedYear) {
+        const mesIndex = mesesKeys.indexOf(m.fecha.substring(0, 7));
+        if (mesIndex !== -1 && (m.tipo === 'ingreso' || m.tipo === 'egreso')) {
+          const movConDetalle = { ...m, valorEnPesos, notasTexto: notasParsed.texto, isUSD };
+          if (m.tipo === 'ingreso') {
+            const cat = m.concepto || 'Otros Ingresos';
+            if (!ingresosPorCategoria[cat]) ingresosPorCategoria[cat] = { nombre: cat, data: Array(12).fill(0), details: Array(12).fill(0).map(() => []) };
+            ingresosPorCategoria[cat].data[mesIndex] = parseFinancial(ingresosPorCategoria[cat].data[mesIndex] + valorEnPesos);
+            ingresosPorCategoria[cat].details[mesIndex].push(movConDetalle);
+            totalesMes[mesIndex].ingresos = parseFinancial(totalesMes[mesIndex].ingresos + valorEnPesos);
+          } else {
+            const cat = m.concepto || 'Otros Gastos';
+            if (!egresosPorCategoria[cat]) egresosPorCategoria[cat] = { nombre: cat, data: Array(12).fill(0), details: Array(12).fill(0).map(() => []) };
+            egresosPorCategoria[cat].data[mesIndex] = parseFinancial(egresosPorCategoria[cat].data[mesIndex] + valorEnPesos);
+            egresosPorCategoria[cat].details[mesIndex].push(movConDetalle);
+            totalesMes[mesIndex].egresos = parseFinancial(totalesMes[mesIndex].egresos + valorEnPesos);
+          }
+        }
+      }
+    });
+
+    let acumulado = saldoInicialAnio;
+    totalesMes.forEach(t => {
+      t.neto = parseFinancial(t.ingresos - t.egresos);
+      t.margen = t.ingresos > 0 ? (t.neto / t.ingresos) * 100 : 0;
+      acumulado = parseFinancial(acumulado + t.neto);
+      t.saldoCaja = acumulado;
+    });
+
+    return {
+      totalARS,
+      porCuenta,
+      grilla: { ingresos: ingresosPorCategoria, egresos: egresosPorCategoria, totales: totalesMes },
+      mesesNames: defaultState.mesesNames
+    };
+  }, [configCuentas, configSaldos, movimientos, cotizacion, selectedYear]);
 
   // Cálculos de Monto Real Proyectado
   const proyeccion = useMemo(() => {
@@ -127,7 +201,7 @@ export default function SaludFinanciera() {
     const montoReal = saldos.totalARS + facturasPendientes - honorariosPendientes;
 
     return { facturasPendientes, honorariosPendientes, costoEstructural, montoReal };
-  }, [facturas, equipo, configRows, saldos]);
+  }, [facturas, equipo, configRows, saldos, clientes]);
 
   const metaReserva = Number(configRows?.find(c => c.clave === 'meta_reserva_anual')?.valor || 33000000);
 
@@ -170,8 +244,8 @@ export default function SaludFinanciera() {
               </div>
             </div>
           ))}
-          <div className="bg-jengibre-primary p-6 rounded-3xl shadow-lg shadow-jengibre-primary/20 flex flex-col justify-between relative overflow-hidden">
-            <div className="absolute -right-4 -top-4 opacity-10 rotate-12"><TrendingUp size={120} /></div>
+          <div className="bg-slate-900 p-6 rounded-3xl shadow-lg shadow-slate-900/10 flex flex-col justify-between relative overflow-hidden">
+            <div className="absolute -right-4 -top-4 opacity-5 rotate-12"><TrendingUp size={120} /></div>
             <div className="relative z-10">
               <div className="flex items-center gap-2 mb-4 text-white/70">
                 <Landmark size={16} />
@@ -289,7 +363,64 @@ export default function SaludFinanciera() {
             </div>
           </div>
         </div>
-      </div>
+        
+        {/* Registro Mensual Real (Cashflow) */}
+        <section className="bg-white border border-slate-200 rounded-[2.5rem] shadow-sm overflow-hidden">
+        <div className="bg-slate-900 text-white py-4 px-8 text-center font-bold tracking-[0.2em] text-[10px] uppercase border-b border-white/5">Registro Mensual Real ({selectedYear})</div>
+        <div className="overflow-x-auto">
+          <table className="w-full text-left text-[11px] whitespace-nowrap border-collapse">
+            <thead>
+              <tr className="bg-slate-50 font-bold border-b border-slate-200">
+                <th className="p-4 border-r border-slate-200 sticky left-0 bg-slate-50 z-10 uppercase tracking-widest text-slate-400">Categoría</th>
+                {saldos.mesesNames?.map((m: string) => <th key={m} className="p-4 border-r border-slate-200 text-center uppercase tracking-widest text-slate-400">{m}</th>)}
+                <th className="p-4 text-center bg-slate-100 uppercase tracking-widest text-slate-500">Total</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr className="bg-emerald-50/50 text-emerald-600 font-bold"><td className="p-3 px-4 sticky left-0 bg-emerald-50/50 z-10 uppercase tracking-[0.2em] text-[9px]">Ingresos</td><td colSpan={13}></td></tr>
+              {saldos.grilla?.ingresos && Object.values(saldos.grilla.ingresos).map((c: any) => (
+                <tr key={c.nombre} className="border-b border-slate-100 group hover:bg-slate-50/50 transition-colors">
+                  <td className="p-3 px-4 border-r border-slate-100 sticky left-0 bg-white z-10 font-bold text-slate-700 group-hover:bg-slate-50 transition-colors">{c.nombre}</td>
+                  {c.data.map((v: number, i: number) => (
+                    <td key={i} className={`p-3 border-r border-slate-100 text-right font-bold text-slate-600 ${v > 0 ? 'text-slate-900' : 'text-slate-300'}`}>{v > 0 ? formatARS(v) : '-'}</td>
+                  ))}
+                  <td className="p-3 text-right font-bold bg-slate-50/80 text-slate-900">{formatARS(c.data.reduce((a: number, b: number) => a + b, 0))}</td>
+                </tr>
+              ))}
+              <tr className="bg-slate-50/80 font-bold border-y border-slate-200">
+                <td className="p-4 sticky left-0 bg-slate-50 z-10 uppercase tracking-widest text-[9px] text-slate-500">Total Ingresos</td>
+                {saldos.grilla?.totales?.map((t: any, i: number) => <td key={i} className="p-4 text-right text-slate-900">{formatARS(t.ingresos)}</td>)}
+                <td className="p-4 text-right bg-slate-100 text-slate-900">{formatARS(saldos.grilla?.totales?.reduce((a: any, t: any) => a + t.ingresos, 0) || 0)}</td>
+              </tr>
+              <tr className="bg-rose-50/50 text-rose-600 font-bold"><td className="p-3 px-4 sticky left-0 bg-rose-50/50 z-10 uppercase tracking-[0.2em] text-[9px]">Egresos</td><td colSpan={13}></td></tr>
+              {saldos.grilla?.egresos && Object.values(saldos.grilla.egresos).map((c: any) => (
+                <tr key={c.nombre} className="border-b border-slate-100 group hover:bg-slate-50/50 transition-colors">
+                  <td className="p-3 px-4 border-r border-slate-100 sticky left-0 bg-white z-10 font-bold text-slate-700 group-hover:bg-slate-50 transition-colors">{c.nombre}</td>
+                  {c.data.map((v: number, i: number) => (
+                    <td key={i} className={`p-3 border-r border-slate-100 text-right font-bold text-rose-600 ${v > 0 ? 'text-rose-600' : 'text-slate-300'}`}>{v > 0 ? formatARS(v) : '-'}</td>
+                  ))}
+                  <td className="p-3 text-right font-bold bg-slate-50/80 text-slate-900">{formatARS(c.data.reduce((a: number, b: number) => a + b, 0))}</td>
+                </tr>
+              ))}
+              <tr className="bg-rose-50/30 font-bold border-y border-rose-100">
+                <td className="p-4 sticky left-0 bg-rose-50/30 z-10 uppercase tracking-widest text-[9px] text-rose-500">Total Egresos</td>
+                {saldos.grilla?.totales?.map((t: any, i: number) => <td key={i} className="p-4 text-right text-rose-600">{formatARS(t.egresos)}</td>)}
+                <td className="p-4 text-right bg-rose-50 text-rose-700">{formatARS(saldos.grilla?.totales?.reduce((a: any, t: any) => a + t.egresos, 0) || 0)}</td>
+              </tr>
+              <tr className="bg-blue-50/30 font-bold border-t-2 border-blue-100">
+                <td className="p-5 sticky left-0 bg-blue-50/30 z-10 uppercase tracking-widest text-[10px] text-blue-600">Resultado Neto</td>
+                {saldos.grilla?.totales?.map((t: any, i: number) => <td key={i} className={`p-5 text-right text-lg tracking-tight ${t.neto < 0 ? 'text-rose-600' : 'text-blue-900'}`}>{formatARS(t.neto)}</td>)}
+                <td className="p-5 text-right bg-blue-50 text-blue-900 text-lg tracking-tight">{formatARS(saldos.grilla?.totales?.reduce((a: any, t: any) => a + t.neto, 0) || 0)}</td>
+              </tr>
+              <tr className="bg-slate-900 text-white font-bold border-t-2 border-white/10">
+                <td className="p-5 sticky left-0 bg-slate-900 z-10 uppercase tracking-[0.2em] text-[10px] text-slate-400">Saldo Acumulado</td>
+                {saldos.grilla?.totales?.map((t: any, i: number) => <td key={i} className="p-5 text-right text-lg tracking-tight text-white">{formatARS(t.saldoCaja)}</td>)}
+                <td className="p-5 text-right bg-slate-800 text-slate-300 text-lg tracking-tight">{formatARS(saldos.grilla?.totales?.[11]?.saldoCaja || 0)}</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </section>
     </div>
   );
 }
