@@ -363,9 +363,10 @@ export default function SaludFinanciera() {
             </div>
           </div>
         </div>
+      </div>
         
-        {/* Registro Mensual Real (Cashflow) */}
-        <section className="bg-white border border-slate-200 rounded-[2.5rem] shadow-sm overflow-hidden">
+      {/* Registro Mensual Real (Cashflow) */}
+      <section className="bg-white border border-slate-200 rounded-[2.5rem] shadow-sm overflow-hidden mt-12">
         <div className="bg-slate-900 text-white py-4 px-8 text-center font-bold tracking-[0.2em] text-[10px] uppercase border-b border-white/5">Registro Mensual Real ({selectedYear})</div>
         <div className="overflow-x-auto">
           <table className="w-full text-left text-[11px] whitespace-nowrap border-collapse">
